@@ -345,6 +345,64 @@ class TTSService {
   }
 
   /**
+   * Streams audio data for manual text input.
+   * @async
+   * @param {{ input: string, voice: string }} options - Stream options.
+   * @param {Object} res - The response object.
+   * @returns {Promise<void>}
+   */
+  async streamManualAudio({ input, voice }, res) {
+    if (!input) {
+      res.status(400).send('Missing text in request body');
+      return;
+    }
+
+    try {
+      res.setHeader('Content-Type', 'audio/mpeg');
+      const provider = this.getProvider();
+      const ttsSchema = this.customConfig.speech.tts[provider];
+      const selectedVoice = await this.getVoice(ttsSchema, voice);
+
+      if (input.length < 4096) {
+        const response = await this.ttsRequest(provider, ttsSchema, {
+          input,
+          voice: selectedVoice,
+          stream: true,
+        });
+        response.data.pipe(res);
+        return;
+      }
+
+      const textChunks = splitTextIntoChunks(input, 1000);
+      for (const chunk of textChunks) {
+        const response = await this.ttsRequest(provider, ttsSchema, {
+          input: chunk.text,
+          voice: selectedVoice,
+          stream: true,
+        });
+
+        await new Promise((resolve) => {
+          response.data.pipe(res, { end: chunk.isFinished });
+          response.data.on('end', resolve);
+        });
+
+        if (chunk.isFinished) {
+          break;
+        }
+      }
+
+      if (!res.headersSent) {
+        res.end();
+      }
+    } catch (error) {
+      logger.error('Error streaming manual audio:', error);
+      if (!res.headersSent) {
+        res.status(500).end();
+      }
+    }
+  }
+
+  /**
    * Streams audio data from the TTS provider.
    * @async
    * @param {Object} req - The request object.
@@ -460,6 +518,12 @@ async function streamAudio(req, res) {
   await ttsService.streamAudio(req, res);
 }
 
+async function streamManualAudio(req, res) {
+  const ttsService = await createTTSService();
+  const { input, voice } = req.body;
+  await ttsService.streamManualAudio({ input, voice }, res);
+}
+
 /**
  * Wrapper function to get the configured TTS provider.
  * @async
@@ -473,5 +537,6 @@ async function getProvider() {
 module.exports = {
   textToSpeech,
   streamAudio,
+  streamManualAudio,
   getProvider,
 };

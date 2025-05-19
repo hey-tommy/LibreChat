@@ -1,6 +1,6 @@
 export class MediaSourceAppender {
   private readonly mediaSource = new MediaSource();
-  private readonly audioChunks: ArrayBuffer[] = [];
+  private readonly audioChunks: BufferSource[] = [];
 
   private sourceBuffer?: SourceBuffer;
 
@@ -21,10 +21,10 @@ export class MediaSourceAppender {
   }
 
   public addBase64Data(base64Data: string) {
-    this.addData(Uint8Array.from(atob(base64Data), (char) => char.charCodeAt(0)).buffer);
+    this.addData(Uint8Array.from(atob(base64Data), (char) => char.charCodeAt(0)));
   }
 
-  public addData(data: ArrayBuffer) {
+  public addData(data: BufferSource) {
     this.audioChunks.push(data);
     this.tryAppendNextChunk();
   }

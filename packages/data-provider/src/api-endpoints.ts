@@ -201,6 +201,8 @@ export const textToSpeech = () => `${speech()}/tts`;
 
 export const textToSpeechManual = () => `${textToSpeech()}/manual`;
 
+export const textToSpeechStream = () => `${textToSpeechManual()}/stream`;
+
 export const textToSpeechVoices = () => `${textToSpeech()}/voices`;
 
 export const getCustomConfigSpeech = () => `${speech()}/config/get`;

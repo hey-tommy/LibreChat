@@ -1,7 +1,12 @@
 const multer = require('multer');
 const express = require('express');
 const { CacheKeys } = require('librechat-data-provider');
-const { getVoices, streamAudio, textToSpeech } = require('~/server/services/Files/Audio');
+const {
+  getVoices,
+  streamAudio,
+  textToSpeech,
+  streamManualAudio,
+} = require('~/server/services/Files/Audio');
 const { getLogStores } = require('~/cache');
 const { logger } = require('~/config');
 
@@ -9,7 +14,16 @@ const router = express.Router();
 const upload = multer();
 
 router.post('/manual', upload.none(), async (req, res) => {
-  await textToSpeech(req, res);
+  const shouldStream = req.query.stream === 'true' || req.body.stream === 'true' || req.body.stream === true;
+  if (shouldStream) {
+    await streamManualAudio(req, res);
+  } else {
+    await textToSpeech(req, res);
+  }
+});
+
+router.post('/manual/stream', upload.none(), async (req, res) => {
+  await streamManualAudio(req, res);
 });
 
 const logDebugMessage = (req, message) =>
