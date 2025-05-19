@@ -3,6 +3,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useTextToSpeechMutation, useVoicesQuery } from '~/data-provider';
 import { useToastContext } from '~/Providers/ToastContext';
 import useLocalize from '~/hooks/useLocalize';
+import { MediaSourceAppender, usePauseGlobalAudio } from '../Audio';
 import store from '~/store';
 
 const createFormData = (text: string, voice: string) => {
@@ -32,6 +33,7 @@ function useTextToSpeechExternal({
   const voice = useRecoilValue(store.voice);
   const cacheTTS = useRecoilValue(store.cacheTTS);
   const playbackRate = useRecoilValue(store.playbackRate);
+  const { pauseGlobalAudio } = usePauseGlobalAudio(index);
 
   const [downloadFile, setDownloadFile] = useState(false);
 
@@ -41,45 +43,58 @@ function useTextToSpeechExternal({
   const globalIsFetching = useRecoilValue(store.globalAudioFetchingFamily(index));
   const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
 
-  const autoPlayAudio = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    audioRef.current = newAudio;
+  const autoPlayAudio = async (blobUrl: string) => {
+    if (!audioRef.current) {
+      return;
+    }
+    pauseGlobalAudio();
+    audioRef.current.src = blobUrl;
+    if (playbackRate != null && playbackRate > 0 && audioRef.current.playbackRate !== playbackRate) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+    try {
+      await audioRef.current.play();
+    } catch (error) {
+      showToast({
+        message: localize('com_nav_audio_play_error', { 0: (error as Error).message }),
+        status: 'error',
+      });
+    }
   };
 
-  const playAudioPromise = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    const initializeAudio = () => {
-      if (playbackRate != null && playbackRate !== 1 && playbackRate > 0) {
-        newAudio.playbackRate = playbackRate;
-      }
-    };
-
-    initializeAudio();
-    const playPromise = () => newAudio.play().then(() => setIsSpeaking(true));
-
-    playPromise().catch((error: Error) => {
+  const playAudioPromise = async (blobUrl: string) => {
+    if (!audioRef.current) {
+      return;
+    }
+    pauseGlobalAudio();
+    audioRef.current.src = blobUrl;
+    if (playbackRate != null && playbackRate > 0 && audioRef.current.playbackRate !== playbackRate) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+    try {
+      await audioRef.current.play();
+      setIsSpeaking(true);
+    } catch (error) {
       if (
-        error.message &&
-        error.message.includes('The play() request was interrupted by a call to pause()')
+        (error as Error).message &&
+        (error as Error).message.includes('The play() request was interrupted by a call to pause()')
       ) {
-        console.log('Play request was interrupted by a call to pause()');
-        initializeAudio();
-        return playPromise().catch(console.error);
+        try {
+          await audioRef.current.play();
+          setIsSpeaking(true);
+          return;
+        } catch (inner) {
+          console.error(inner);
+        }
       }
       console.error(error);
       showToast({
-        message: localize('com_nav_audio_play_error', { 0: error.message }),
+        message: localize('com_nav_audio_play_error', { 0: (error as Error).message }),
         status: 'error',
       });
-    });
+    }
 
-    newAudio.onended = () => {
-      console.log('Cached message audio ended');
-      URL.revokeObjectURL(blobUrl);
-      setIsSpeaking(false);
-    };
-
-    promiseAudioRef.current = newAudio;
+    promiseAudioRef.current = audioRef.current;
   };
 
   const downloadAudio = (blobUrl: string) => {
@@ -100,23 +115,72 @@ function useTextToSpeechExternal({
         });
       }
     },
-    onSuccess: async (data: ArrayBuffer, variables) => {
+    onSuccess: async (data: ArrayBuffer | Response, variables) => {
       try {
         const inputText = (variables.get('input') ?? '') as string;
-        const audioBlob = new Blob([data], { type: 'audio/mpeg' });
 
-        if (cacheTTS && inputText) {
-          const cache = await caches.open('tts-responses');
-          const request = new Request(inputText);
-          const response = new Response(audioBlob);
-          cache.put(request, response);
-        }
+        if (data instanceof Response && data.body) {
+          const reader = data.body.getReader();
+          const type = 'audio/mpeg';
+          const browserSupportsType =
+            typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+          let mediaSource: MediaSourceAppender | undefined;
+          const chunks: Uint8Array[] = [];
 
-        const blobUrl = URL.createObjectURL(audioBlob);
-        if (downloadFile) {
-          downloadAudio(blobUrl);
+          if (browserSupportsType && audioRef.current) {
+            mediaSource = new MediaSourceAppender(type);
+            pauseGlobalAudio();
+            audioRef.current.src = mediaSource.mediaSourceUrl;
+          }
+
+          let done = false;
+          while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            if (value) {
+              chunks.push(value);
+              mediaSource?.addData(value);
+            }
+            done = readerDone;
+          }
+
+          mediaSource?.close();
+
+          const audioBlob = new Blob(chunks, { type });
+
+          if (cacheTTS && inputText) {
+            const cache = await caches.open('tts-responses');
+            const request = new Request(inputText);
+            const response = new Response(audioBlob);
+            cache.put(request, response);
+          }
+
+          const blobUrl = URL.createObjectURL(audioBlob);
+          if (downloadFile) {
+            downloadAudio(blobUrl);
+          }
+
+          if (!mediaSource) {
+            await autoPlayAudio(blobUrl);
+          } else if (audioRef.current && !downloadFile) {
+            await audioRef.current.play();
+          }
+        } else {
+          const arrayBuffer = data as ArrayBuffer;
+          const audioBlob = new Blob([arrayBuffer], { type: 'audio/mpeg' });
+
+          if (cacheTTS && inputText) {
+            const cache = await caches.open('tts-responses');
+            const request = new Request(inputText);
+            const response = new Response(audioBlob);
+            cache.put(request, response);
+          }
+
+          const blobUrl = URL.createObjectURL(audioBlob);
+          if (downloadFile) {
+            downloadAudio(blobUrl);
+          }
+          await autoPlayAudio(blobUrl);
         }
-        autoPlayAudio(blobUrl);
       } catch (error) {
         showToast({
           message: `Error processing audio: ${(error as Error).message}`,
@@ -156,7 +220,7 @@ function useTextToSpeechExternal({
     if (download) {
       downloadAudio(blobUrl);
     } else {
-      playAudioPromise(blobUrl);
+      await playAudioPromise(blobUrl);
     }
   };
 
@@ -165,8 +229,12 @@ function useTextToSpeechExternal({
     const pauseAudio = (currentElement: HTMLAudioElement | null) => {
       if (currentElement) {
         currentElement.pause();
-        currentElement.src && URL.revokeObjectURL(currentElement.src);
-        audioRef.current = null;
+        if (currentElement.src) {
+          URL.revokeObjectURL(currentElement.src);
+        }
+        if (currentElement !== audioRef.current) {
+          currentElement.src = '';
+        }
       }
     };
     pauseAudio(messageAudio);
@@ -177,8 +245,10 @@ function useTextToSpeechExternal({
   const cancelPromiseSpeech = useCallback(() => {
     if (promiseAudioRef.current) {
       promiseAudioRef.current.pause();
-      promiseAudioRef.current.src && URL.revokeObjectURL(promiseAudioRef.current.src);
-      promiseAudioRef.current = null;
+      if (promiseAudioRef.current.src) {
+        URL.revokeObjectURL(promiseAudioRef.current.src);
+      }
+      promiseAudioRef.current.src = '';
       setIsSpeaking(false);
     }
   }, [setIsSpeaking]);

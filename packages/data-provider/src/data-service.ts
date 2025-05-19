@@ -536,6 +536,10 @@ export const textToSpeech = (data: FormData): Promise<ArrayBuffer> => {
   return request.postTTS(endpoints.textToSpeechManual(), data);
 };
 
+export const textToSpeechStream = (data: FormData): Promise<ArrayBuffer> => {
+  return request.postTTS(endpoints.textToSpeechStream(), data);
+};
+
 export const getVoices = (): Promise<f.VoiceResponse> => {
   return request.get(endpoints.textToSpeechVoices());
 };
