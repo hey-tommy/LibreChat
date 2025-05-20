@@ -1,4 +1,5 @@
 import type { AxiosResponse } from 'axios';
+import axios from 'axios';
 import type * as t from './types';
 import * as endpoints from './api-endpoints';
 import * as a from './types/assistants';
@@ -536,8 +537,17 @@ export const textToSpeech = (data: FormData): Promise<ArrayBuffer> => {
   return request.postTTS(endpoints.textToSpeechManual(), data);
 };
 
-export const textToSpeechStream = (data: FormData): Promise<ArrayBuffer> => {
-  return request.postTTS(endpoints.textToSpeechStream(), data);
+export const textToSpeechStream = async (data: FormData): Promise<Response> => {
+  const headers: Record<string, string> = {};
+  const auth = axios.defaults.headers.common['Authorization'];
+  if (auth) {
+    headers['Authorization'] = auth as string;
+  }
+  return fetch(endpoints.textToSpeechStream(), {
+    method: 'POST',
+    headers,
+    body: data,
+  });
 };
 
 export const getVoices = (): Promise<f.VoiceResponse> => {
