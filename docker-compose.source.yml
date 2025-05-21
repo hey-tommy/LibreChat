@@ -23,11 +23,8 @@
 
 services:
   api:
-    container_name: LibreChat-Tom
-    image: librechat-tom
-    build:
-      context: .
-      target: node
+    container_name: LibreChat
+    image: ghcr.io/danny-avila/librechat-dev:latest
     volumes:
       - type: bind
         source: ./librechat.yaml
