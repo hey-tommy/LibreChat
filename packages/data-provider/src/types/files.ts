@@ -110,7 +110,7 @@ export type SpeechToTextOptions = {
 };
 
 export type TextToSpeechOptions = {
-  onSuccess?: (data: ArrayBuffer, variables: FormData, context?: unknown) => void;
+  onSuccess?: (data: ArrayBuffer | Response, variables: FormData, context?: unknown) => void;
   onMutate?: (variables: FormData) => void | Promise<unknown>;
   onError?: (error: unknown, variables: FormData, context?: unknown) => void;
 };

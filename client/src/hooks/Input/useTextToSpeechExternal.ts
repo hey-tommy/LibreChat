@@ -131,6 +131,14 @@ function useTextToSpeechExternal({
             mediaSource = new MediaSourceAppender(type);
             pauseGlobalAudio();
             audioRef.current.src = mediaSource.mediaSourceUrl;
+            try {
+              // attempt to begin playback as soon as data becomes available
+              if (!downloadFile) {
+                await audioRef.current.play();
+              }
+            } catch (err) {
+              console.error(err);
+            }
           }
 
           let done = false;
@@ -161,8 +169,6 @@ function useTextToSpeechExternal({
 
           if (!mediaSource) {
             await autoPlayAudio(blobUrl);
-          } else if (audioRef.current && !downloadFile) {
-            await audioRef.current.play();
           }
         } else {
           const arrayBuffer = data as ArrayBuffer;
@@ -253,7 +259,9 @@ function useTextToSpeechExternal({
     }
   }, [setIsSpeaking]);
 
-  useEffect(() => cancelPromiseSpeech, [cancelPromiseSpeech]);
+  useEffect(() => {
+    return cancelPromiseSpeech;
+  }, [cancelPromiseSpeech]);
 
   const isFetching = useMemo(
     () => isLast && globalIsFetching && !globalIsPlaying,

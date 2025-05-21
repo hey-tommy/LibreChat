@@ -674,13 +674,13 @@ export const useSpeechToTextMutation = (
 export const useTextToSpeechMutation = (
   options?: t.TextToSpeechOptions,
 ): UseMutationResult<
-  ArrayBuffer, // response data
+  ArrayBuffer | Response, // response data
   unknown, // error
   FormData, // request
   unknown // context
 > => {
   return useMutation([MutationKeys.textToSpeech], {
-    mutationFn: (variables: FormData) => dataService.textToSpeech(variables),
+    mutationFn: (variables: FormData) => dataService.textToSpeechStream(variables),
     ...(options || {}),
   });
 };
