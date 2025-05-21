@@ -21,7 +21,15 @@
 
 # ---------------------------------------------------
 
-# services:
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+  mongodb:
+    image: mongo:7.0.5-jammy   # multi-arch tag with native arm64 layer
+    platform: linux/arm64      # forces the right arch
 
 # # USE LIBRECHAT CONFIG FILE
 #   api:
