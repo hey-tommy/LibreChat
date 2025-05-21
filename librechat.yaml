@@ -94,13 +94,13 @@ registration:
 #   refillIntervalUnit: 'days'
 #   refillAmount: 10000
 
-# speech:
-#   tts:
-#     openai:
-#       url: ''
-#       apiKey: '${TTS_API_KEY}'
-#       model: ''
-#       voices: ['']
+speech:
+  tts:
+    openai:
+      url: 'http://host.docker.internal:8880/v1/audio/speech'
+      apiKey: '${TTS_API_KEY}'
+      model: 'tts-1'
+      voices: ['af_bella','af_alloy','af_river']
 
 #
 #   stt:
