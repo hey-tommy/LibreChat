@@ -121,3 +121,19 @@ helm/**/.values.yaml
 
 !/client/src/@types/i18next.d.ts
 
+########### Personal .gitignore overrides section for Tom's private fork ###########
+########### NEVER include .gitignore file in pull requests to upstream   ###########
+
+# LibreChat config file
+!/librechat.yaml
+!/librechat.yml
+
+# Docker override file
+!/docker-compose.override.yaml
+!/docker-compose.override.yml
+
+# Environment
+!/.env
+
+# Files to ignore
+/librechat-chatgpt.md
