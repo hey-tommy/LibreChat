@@ -11,6 +11,7 @@ import {
   CacheTTSSwitch,
   VoiceDropdown,
   PlaybackRate,
+  StreamManualTTSSwitch,
 } from './TTS';
 import {
   AutoTranscribeAudioSwitch,
@@ -234,6 +235,7 @@ function Speech() {
             <PlaybackRate />
           </div>
           <CacheTTSSwitch />
+          <StreamManualTTSSwitch />
         </div>
       </Tabs.Content>
     </Tabs.Root>
