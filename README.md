@@ -150,6 +150,12 @@ Click on the thumbnail to open the video☝️
 
 ---
 
+## Developer Notes
+
+- A hidden option `streamManualTTS` enables streaming audio for manual text-to-speech. Toggle it via the `StreamManualTTS` switch when the `SHOW_STREAM_MANUAL_TTS_TOGGLE` constant is set to `true`.
+
+---
+
 ## 📝 Changelog
 
 Keep up with the latest updates by visiting the releases page and notes:

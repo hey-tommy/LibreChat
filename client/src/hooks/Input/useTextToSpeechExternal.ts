@@ -1,7 +1,9 @@
 import { useRecoilValue } from 'recoil';
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { MediaSourceAppender } from '~/hooks/Audio';
 import { useTextToSpeechMutation, useVoicesQuery } from '~/data-provider';
 import { useToastContext } from '~/Providers/ToastContext';
+import { useAuthContext } from '~/hooks/AuthContext';
 import useLocalize from '~/hooks/useLocalize';
 import store from '~/store';
 
@@ -31,11 +33,15 @@ function useTextToSpeechExternal({
   const { showToast } = useToastContext();
   const voice = useRecoilValue(store.voice);
   const cacheTTS = useRecoilValue(store.cacheTTS);
+  const streamManualTTS = useRecoilValue(store.streamManualTTS);
   const playbackRate = useRecoilValue(store.playbackRate);
 
   const [downloadFile, setDownloadFile] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const promiseAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaSourceRef = useRef<MediaSourceAppender | null>(null);
+  const streamUrlRef = useRef<string | null>(null);
 
   /* Global Audio Variables */
   const globalIsFetching = useRecoilValue(store.globalAudioFetchingFamily(index));
@@ -132,13 +138,94 @@ function useTextToSpeechExternal({
     },
   });
 
+  const { token } = useAuthContext();
+
   const startMutation = (text: string, download: boolean) => {
     const formData = createFormData(text, voice ?? '');
     setDownloadFile(download);
     processAudio(formData);
   };
 
+  const startStreaming = async (text: string, download: boolean) => {
+    const formData = createFormData(text, voice ?? '');
+    setDownloadFile(download);
+    setIsStreaming(true);
+    try {
+      const response = await fetch('/api/files/speech/tts/manual', {
+        method: 'POST',
+        body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to fetch audio');
+      }
+
+      const reader = response.body.getReader();
+      const type = 'audio/mpeg';
+      const browserSupportsType =
+        typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+      const chunks: ArrayBuffer[] = [];
+      let mediaSource: MediaSourceAppender | null = null;
+
+      if (browserSupportsType) {
+        mediaSource = new MediaSourceAppender(type);
+        mediaSourceRef.current = mediaSource;
+        streamUrlRef.current = mediaSource.mediaSourceUrl;
+        autoPlayAudio(streamUrlRef.current);
+      }
+
+      let done = false;
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        if (value) {
+          const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+          if (cacheTTS) {
+            chunks.push(buffer);
+          }
+          if (browserSupportsType && mediaSource) {
+            mediaSource.addData(buffer);
+          }
+        }
+        done = readerDone;
+      }
+
+      mediaSource?.close();
+
+      if (chunks.length) {
+        const audioBlob = new Blob(chunks, { type });
+        if (cacheTTS && text) {
+          const cache = await caches.open('tts-responses');
+          await cache.put(new Request(text), new Response(audioBlob));
+        }
+        if (!browserSupportsType) {
+          const blobUrl = URL.createObjectURL(audioBlob);
+          streamUrlRef.current = blobUrl;
+          autoPlayAudio(blobUrl);
+          if (download) {
+            downloadAudio(blobUrl);
+          }
+        } else if (download) {
+          const blobUrl = URL.createObjectURL(audioBlob);
+          downloadAudio(blobUrl);
+        }
+      }
+    } catch (error) {
+      showToast({
+        message: localize('com_nav_audio_process_error', { 0: (error as Error).message }),
+        status: 'error',
+      });
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
   const generateSpeechExternal = (text: string, download: boolean) => {
+    if (streamManualTTS) {
+      startStreaming(text, download);
+      return;
+    }
+
     if (cacheTTS) {
       handleCachedResponse(text, download);
     } else {
@@ -171,6 +258,15 @@ function useTextToSpeechExternal({
     };
     pauseAudio(messageAudio);
     pauseAudio(promiseAudioRef.current);
+    pauseAudio(audioRef.current);
+    if (streamUrlRef.current) {
+      URL.revokeObjectURL(streamUrlRef.current);
+      streamUrlRef.current = null;
+    }
+    if (mediaSourceRef.current) {
+      mediaSourceRef.current.close();
+      mediaSourceRef.current = null;
+    }
     setIsSpeaking(false);
   };
 
@@ -195,7 +291,7 @@ function useTextToSpeechExternal({
   return {
     generateSpeechExternal,
     cancelSpeech,
-    isLoading: isFetching || isLoading,
+    isLoading: isFetching || isLoading || isStreaming,
     audioRef,
     voices: voicesData,
   };
