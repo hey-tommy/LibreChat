@@ -1,7 +1,9 @@
 import { useRecoilValue } from 'recoil';
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { MediaSourceAppender } from '~/hooks/Audio';
 import { useTextToSpeechMutation, useVoicesQuery } from '~/data-provider';
 import { useToastContext } from '~/Providers/ToastContext';
+import { useAuthContext } from '~/hooks/AuthContext';
 import useLocalize from '~/hooks/useLocalize';
 import store from '~/store';
 
@@ -29,33 +31,66 @@ function useTextToSpeechExternal({
 }: TUseTTSExternal) {
   const localize = useLocalize();
   const { showToast } = useToastContext();
+  const { token } = useAuthContext();
   const voice = useRecoilValue(store.voice);
   const cacheTTS = useRecoilValue(store.cacheTTS);
+  const streamManualTTS = useRecoilValue(store.streamManualTTS);
   const playbackRate = useRecoilValue(store.playbackRate);
 
   const [downloadFile, setDownloadFile] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const promiseAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaSourceRef = useRef<MediaSourceAppender | null>(null);
+  const streamUrlRef = useRef<string | null>(null);
 
   /* Global Audio Variables */
   const globalIsFetching = useRecoilValue(store.globalAudioFetchingFamily(index));
   const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
 
   const autoPlayAudio = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    audioRef.current = newAudio;
+    if (!audioRef.current) {
+      return;
+    }
+    try {
+      audioRef.current.pause();
+      if (audioRef.current.src) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+      audioRef.current.src = blobUrl;
+      if (playbackRate != null && playbackRate > 0) {
+        audioRef.current.playbackRate = playbackRate;
+      }
+      audioRef.current
+        .play()
+        .then(() => setIsSpeaking(true))
+        .catch((error: Error) => {
+          showToast({
+            message: localize('com_nav_audio_play_error', { 0: error.message }),
+            status: 'error',
+          });
+        });
+    } catch (error) {
+      console.error('Error playing audio', error);
+    }
   };
 
   const playAudioPromise = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    const initializeAudio = () => {
-      if (playbackRate != null && playbackRate !== 1 && playbackRate > 0) {
-        newAudio.playbackRate = playbackRate;
-      }
-    };
+    if (!audioRef.current) {
+      return;
+    }
 
-    initializeAudio();
-    const playPromise = () => newAudio.play().then(() => setIsSpeaking(true));
+    const audio = audioRef.current;
+    audio.pause();
+    if (audio.src) {
+      URL.revokeObjectURL(audio.src);
+    }
+    audio.src = blobUrl;
+    if (playbackRate != null && playbackRate > 0) {
+      audio.playbackRate = playbackRate;
+    }
+
+    const playPromise = () => audio.play().then(() => setIsSpeaking(true));
 
     playPromise().catch((error: Error) => {
       if (
@@ -63,7 +98,6 @@ function useTextToSpeechExternal({
         error.message.includes('The play() request was interrupted by a call to pause()')
       ) {
         console.log('Play request was interrupted by a call to pause()');
-        initializeAudio();
         return playPromise().catch(console.error);
       }
       console.error(error);
@@ -73,13 +107,13 @@ function useTextToSpeechExternal({
       });
     });
 
-    newAudio.onended = () => {
+    audio.onended = () => {
       console.log('Cached message audio ended');
       URL.revokeObjectURL(blobUrl);
       setIsSpeaking(false);
     };
 
-    promiseAudioRef.current = newAudio;
+    promiseAudioRef.current = audio;
   };
 
   const downloadAudio = (blobUrl: string) => {
@@ -138,7 +172,87 @@ function useTextToSpeechExternal({
     processAudio(formData);
   };
 
+  const startStreaming = async (text: string, download: boolean) => {
+    const formData = createFormData(text, voice ?? '');
+    setDownloadFile(download);
+    setIsStreaming(true);
+    try {
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await fetch('/api/files/speech/tts/manual', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error('Failed to fetch audio');
+      }
+
+      const reader = response.body.getReader();
+      const type = 'audio/mpeg';
+      const browserSupportsType =
+        typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+      const chunks: ArrayBuffer[] = [];
+      let mediaSource: MediaSourceAppender | null = null;
+
+      if (browserSupportsType) {
+        mediaSource = new MediaSourceAppender(type);
+        mediaSourceRef.current = mediaSource;
+        streamUrlRef.current = mediaSource.mediaSourceUrl;
+        autoPlayAudio(streamUrlRef.current);
+      }
+
+      let done = false;
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        if (value) {
+          const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+          if (cacheTTS) {
+            chunks.push(buffer);
+          }
+          if (browserSupportsType && mediaSource) {
+            mediaSource.addData(buffer);
+          }
+        }
+        done = readerDone;
+      }
+
+      mediaSource?.close();
+
+      if (chunks.length) {
+        const audioBlob = new Blob(chunks, { type });
+        if (cacheTTS && text) {
+          const cache = await caches.open('tts-responses');
+          await cache.put(new Request(text), new Response(audioBlob));
+        }
+        if (!browserSupportsType) {
+          const blobUrl = URL.createObjectURL(audioBlob);
+          streamUrlRef.current = blobUrl;
+          autoPlayAudio(blobUrl);
+          if (download) {
+            downloadAudio(blobUrl);
+          }
+        } else if (download) {
+          const blobUrl = URL.createObjectURL(audioBlob);
+          downloadAudio(blobUrl);
+        }
+      }
+    } catch (error) {
+      showToast({
+        message: localize('com_nav_audio_process_error', { 0: (error as Error).message }),
+        status: 'error',
+      });
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
   const generateSpeechExternal = (text: string, download: boolean) => {
+    if (streamManualTTS) {
+      startStreaming(text, download);
+      return;
+    }
+
     if (cacheTTS) {
       handleCachedResponse(text, download);
     } else {
@@ -171,6 +285,15 @@ function useTextToSpeechExternal({
     };
     pauseAudio(messageAudio);
     pauseAudio(promiseAudioRef.current);
+    pauseAudio(audioRef.current);
+    if (streamUrlRef.current) {
+      URL.revokeObjectURL(streamUrlRef.current);
+      streamUrlRef.current = null;
+    }
+    if (mediaSourceRef.current) {
+      mediaSourceRef.current.close();
+      mediaSourceRef.current = null;
+    }
     setIsSpeaking(false);
   };
 
@@ -195,7 +318,7 @@ function useTextToSpeechExternal({
   return {
     generateSpeechExternal,
     cancelSpeech,
-    isLoading: isFetching || isLoading,
+    isLoading: isFetching || isLoading || isStreaming,
     audioRef,
     voices: voicesData,
   };
