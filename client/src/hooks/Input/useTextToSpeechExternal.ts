@@ -39,7 +39,6 @@ function useTextToSpeechExternal({
   const [downloadFile, setDownloadFile] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
 
-  const promiseAudioRef = useRef<HTMLAudioElement | null>(null);
   const mediaSourceRef = useRef<MediaSourceAppender | null>(null);
   const streamUrlRef = useRef<string | null>(null);
 
@@ -48,20 +47,26 @@ function useTextToSpeechExternal({
   const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
 
   const autoPlayAudio = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    audioRef.current = newAudio;
+    if (!audioRef.current) {
+      return;
+    }
+    if (playbackRate != null && playbackRate > 0 && playbackRate !== 1) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+    audioRef.current.src = blobUrl;
+    audioRef.current.play().catch((error) => console.error('Error autoplaying audio:', error));
   };
 
   const playAudioPromise = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    const initializeAudio = () => {
-      if (playbackRate != null && playbackRate !== 1 && playbackRate > 0) {
-        newAudio.playbackRate = playbackRate;
-      }
-    };
+    if (!audioRef.current) {
+      return;
+    }
+    if (playbackRate != null && playbackRate > 0 && playbackRate !== 1) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+    audioRef.current.src = blobUrl;
 
-    initializeAudio();
-    const playPromise = () => newAudio.play().then(() => setIsSpeaking(true));
+    const playPromise = () => audioRef.current!.play().then(() => setIsSpeaking(true));
 
     playPromise().catch((error: Error) => {
       if (
@@ -69,7 +74,6 @@ function useTextToSpeechExternal({
         error.message.includes('The play() request was interrupted by a call to pause()')
       ) {
         console.log('Play request was interrupted by a call to pause()');
-        initializeAudio();
         return playPromise().catch(console.error);
       }
       console.error(error);
@@ -78,14 +82,6 @@ function useTextToSpeechExternal({
         status: 'error',
       });
     });
-
-    newAudio.onended = () => {
-      console.log('Cached message audio ended');
-      URL.revokeObjectURL(blobUrl);
-      setIsSpeaking(false);
-    };
-
-    promiseAudioRef.current = newAudio;
   };
 
   const downloadAudio = (blobUrl: string) => {
@@ -172,7 +168,13 @@ function useTextToSpeechExternal({
         mediaSource = new MediaSourceAppender(type);
         mediaSourceRef.current = mediaSource;
         streamUrlRef.current = mediaSource.mediaSourceUrl;
-        autoPlayAudio(streamUrlRef.current);
+        if (audioRef.current) {
+          if (playbackRate != null && playbackRate > 0 && playbackRate !== 1) {
+            audioRef.current.playbackRate = playbackRate;
+          }
+          audioRef.current.src = streamUrlRef.current;
+          audioRef.current.play().catch(console.error);
+        }
       }
 
       let done = false;
@@ -248,17 +250,16 @@ function useTextToSpeechExternal({
   };
 
   const cancelSpeech = () => {
-    const messageAudio = document.getElementById(`audio-${messageId}`) as HTMLAudioElement | null;
-    const pauseAudio = (currentElement: HTMLAudioElement | null) => {
-      if (currentElement) {
-        currentElement.pause();
-        currentElement.src && URL.revokeObjectURL(currentElement.src);
-        audioRef.current = null;
+    const audioElement =
+      audioRef.current ||
+      (document.getElementById(`audio-${messageId}`) as HTMLAudioElement | null);
+    if (audioElement) {
+      audioElement.pause();
+      if (audioElement.src) {
+        URL.revokeObjectURL(audioElement.src);
+        audioElement.removeAttribute('src');
       }
-    };
-    pauseAudio(messageAudio);
-    pauseAudio(promiseAudioRef.current);
-    pauseAudio(audioRef.current);
+    }
     if (streamUrlRef.current) {
       URL.revokeObjectURL(streamUrlRef.current);
       streamUrlRef.current = null;
@@ -269,17 +270,6 @@ function useTextToSpeechExternal({
     }
     setIsSpeaking(false);
   };
-
-  const cancelPromiseSpeech = useCallback(() => {
-    if (promiseAudioRef.current) {
-      promiseAudioRef.current.pause();
-      promiseAudioRef.current.src && URL.revokeObjectURL(promiseAudioRef.current.src);
-      promiseAudioRef.current = null;
-      setIsSpeaking(false);
-    }
-  }, [setIsSpeaking]);
-
-  useEffect(() => cancelPromiseSpeech, [cancelPromiseSpeech]);
 
   const isFetching = useMemo(
     () => isLast && globalIsFetching && !globalIsPlaying,
