@@ -17,7 +17,7 @@ const createFormData = (text: string, voice: string) => {
 type TUseTTSExternal = {
   setIsSpeaking: React.Dispatch<React.SetStateAction<boolean>>;
   audioRef: React.MutableRefObject<HTMLAudioElement | null>;
-  messageId?: string;
+  messageId?: string; // Used for unique ID for the audio element in TTS.tsx if needed
   isLast: boolean;
   index?: number;
 };
@@ -25,85 +25,146 @@ type TUseTTSExternal = {
 function useTextToSpeechExternal({
   setIsSpeaking,
   audioRef,
-  messageId,
+  // messageId, // Not directly used in this hook's logic after refactor, but kept if parent needs it
   isLast,
   index = 0,
 }: TUseTTSExternal) {
   const localize = useLocalize();
   const { showToast } = useToastContext();
+  const { token } = useAuthContext();
+
   const voice = useRecoilValue(store.voice);
   const cacheTTS = useRecoilValue(store.cacheTTS);
   const streamManualTTS = useRecoilValue(store.streamManualTTS);
   const playbackRate = useRecoilValue(store.playbackRate);
 
   const [downloadFile, setDownloadFile] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // Combined loading/streaming state
 
-  const promiseAudioRef = useRef<HTMLAudioElement | null>(null);
   const mediaSourceRef = useRef<MediaSourceAppender | null>(null);
-  const streamUrlRef = useRef<string | null>(null);
+  // Keep track of the current object URL (blob or MediaSource) to revoke it
+  const currentObjectUrlRef = useRef<string | null>(null);
 
-  /* Global Audio Variables */
+  // Refs for event handlers to ensure correct removal
+  const canPlayHandlerRef = useRef<(() => void) | null>(null);
+  const mediaLoadErrorHandlerRef = useRef<((event: Event) => void) | null>(null);
+
+
+  /* Global Audio Variables for isLoading state calculation */
   const globalIsFetching = useRecoilValue(store.globalAudioFetchingFamily(index));
   const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
 
-  const autoPlayAudio = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    audioRef.current = newAudio;
-  };
+  const cleanupOldAudioSource = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      if (currentObjectUrlRef.current) {
+        URL.revokeObjectURL(currentObjectUrlRef.current);
+        currentObjectUrlRef.current = null;
+      }
+      // Important: Remove src attribute to allow new src to be loaded properly
+      // and to stop the browser from potentially holding onto the old resource.
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load(); // Resets the media element to its initial state.
+    }
+    if (mediaSourceRef.current) {
+      mediaSourceRef.current.close(); // Ensure MediaSource is closed if it was used
+      mediaSourceRef.current = null;
+    }
+     // Remove any lingering instance-specific listeners from audioRef.current
+    if (audioRef.current && canPlayHandlerRef.current) {
+      audioRef.current.removeEventListener('canplay', canPlayHandlerRef.current);
+      canPlayHandlerRef.current = null;
+    }
+    if (audioRef.current && mediaLoadErrorHandlerRef.current) {
+      audioRef.current.removeEventListener('error', mediaLoadErrorHandlerRef.current);
+      mediaLoadErrorHandlerRef.current = null;
+    }
+  }, [audioRef]);
 
-  const playAudioPromise = (blobUrl: string) => {
-    const newAudio = new Audio(blobUrl);
-    const initializeAudio = () => {
-      if (playbackRate != null && playbackRate !== 1 && playbackRate > 0) {
-        newAudio.playbackRate = playbackRate;
+
+  const playAudioWithDomElement = useCallback((audioUrl: string) => {
+    if (!audioRef.current) {
+      console.error('Audio ref is not available for playback.');
+      setIsSpeaking(false);
+      setIsProcessing(false);
+      return;
+    }
+
+    cleanupOldAudioSource(); // Clean up before setting a new source
+
+    currentObjectUrlRef.current = audioUrl; // Store for later revocation
+
+    if (playbackRate != null && playbackRate > 0) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+
+    const handleSuccessfulPlay = () => {
+      setIsSpeaking(true);
+      setIsProcessing(false); // Playback started, no longer "processing" in the sense of fetching/preparing
+      if (audioRef.current && canPlayHandlerRef.current) {
+        audioRef.current.removeEventListener('canplay', canPlayHandlerRef.current);
+      }
+      if (audioRef.current && mediaLoadErrorHandlerRef.current) {
+        audioRef.current.removeEventListener('error', mediaLoadErrorHandlerRef.current);
       }
     };
 
-    initializeAudio();
-    const playPromise = () => newAudio.play().then(() => setIsSpeaking(true));
-
-    playPromise().catch((error: Error) => {
-      if (
-        error.message &&
-        error.message.includes('The play() request was interrupted by a call to pause()')
-      ) {
-        console.log('Play request was interrupted by a call to pause()');
-        initializeAudio();
-        return playPromise().catch(console.error);
-      }
-      console.error(error);
+    const handlePlayAttemptError = (error: Error) => {
+      console.error('Error attempting to play audio:', error);
+      setIsSpeaking(false);
+      setIsProcessing(false);
+      // Using existing localization key, providing more context in the error object for developers
       showToast({
-        message: localize('com_nav_audio_play_error', { 0: error.message }),
+        message: localize('com_nav_audio_play_error', { 0: error.message || 'Unknown playback error.' }),
         status: 'error',
       });
-    });
-
-    newAudio.onended = () => {
-      console.log('Cached message audio ended');
-      URL.revokeObjectURL(blobUrl);
-      setIsSpeaking(false);
+      cleanupOldAudioSource(); // Clean up if play fails
+    };
+    
+    canPlayHandlerRef.current = () => {
+      if(audioRef.current){
+        audioRef.current.play().then(handleSuccessfulPlay).catch(handlePlayAttemptError);
+      }
     };
 
-    promiseAudioRef.current = newAudio;
-  };
+    mediaLoadErrorHandlerRef.current = (event: Event) => {
+      console.error('Error loading audio source:', event);
+      setIsSpeaking(false);
+      setIsProcessing(false);
+      showToast({
+        message: localize('com_nav_audio_play_error', { 0: 'Failed to load audio source.' }),
+        status: 'error',
+      });
+      cleanupOldAudioSource();
+    };
+    
+    if(audioRef.current) {
+      audioRef.current.addEventListener('canplay', canPlayHandlerRef.current);
+      audioRef.current.addEventListener('error', mediaLoadErrorHandlerRef.current);
+      audioRef.current.src = audioUrl;
+      audioRef.current.load(); // This signals the browser to load the new source
+    }
+
+  }, [audioRef, playbackRate, setIsSpeaking, showToast, localize, cleanupOldAudioSource]);
+
 
   const downloadAudio = (blobUrl: string) => {
     const a = document.createElement('a');
     a.href = blobUrl;
     a.download = 'audio.mp3';
+    document.body.appendChild(a); // Required for Firefox
     a.click();
+    document.body.removeChild(a);
+    // URL.revokeObjectURL(blobUrl); // blobUrl is revoked by playAudioWithDomElement or cancelSpeech
     setDownloadFile(false);
   };
 
-  const { mutate: processAudio, isLoading } = useTextToSpeechMutation({
+  const { mutate: processAudioViaAxios, isLoading: isLoadingAxios } = useTextToSpeechMutation({
     onMutate: (variables) => {
+      setIsProcessing(true);
       const inputText = (variables.get('input') ?? '') as string;
       if (inputText.length >= 4096) {
-        showToast({
-          message: localize('com_nav_long_audio_warning'),
-          status: 'warning',
-        });
+        showToast({ message: localize('com_nav_long_audio_warning'), status: 'warning' });
       }
     },
     onSuccess: async (data: ArrayBuffer, variables) => {
@@ -113,177 +174,155 @@ function useTextToSpeechExternal({
 
         if (cacheTTS && inputText) {
           const cache = await caches.open('tts-responses');
-          const request = new Request(inputText);
-          const response = new Response(audioBlob);
-          cache.put(request, response);
+          await cache.put(new Request(inputText), new Response(audioBlob));
         }
 
         const blobUrl = URL.createObjectURL(audioBlob);
         if (downloadFile) {
-          downloadAudio(blobUrl);
+          downloadAudio(blobUrl); // Download happens, then we might play or not based on user flow
+          // If !downloadFile, playAudioWithDomElement will be called next
         }
-        autoPlayAudio(blobUrl);
+        // Playback is now handled by playAudioWithDomElement, called after this or by handleCachedResponse
+        playAudioWithDomElement(blobUrl);
       } catch (error) {
-        showToast({
-          message: `Error processing audio: ${(error as Error).message}`,
-          status: 'error',
-        });
+        setIsProcessing(false);
+        showToast({ message: `Error processing audio: ${(error as Error).message}`, status: 'error' });
       }
     },
     onError: (error: unknown) => {
-      showToast({
-        message: localize('com_nav_audio_process_error', { 0: (error as Error).message }),
-        status: 'error',
-      });
+      setIsProcessing(false);
+      showToast({ message: localize('com_nav_audio_process_error', { 0: (error as Error).message }), status: 'error' });
     },
   });
 
-  const { token } = useAuthContext();
-
-  const startMutation = (text: string, download: boolean) => {
+  const startFullDownloadMutation = (text: string, shouldDownload: boolean) => {
     const formData = createFormData(text, voice ?? '');
-    setDownloadFile(download);
-    processAudio(formData);
+    setDownloadFile(shouldDownload);
+    processAudioViaAxios(formData);
   };
 
-  const startStreaming = async (text: string, download: boolean) => {
+  const startStreamingWithFetch = async (text: string, shouldDownload: boolean) => {
     const formData = createFormData(text, voice ?? '');
-    setDownloadFile(download);
-    setIsStreaming(true);
+    setDownloadFile(shouldDownload);
+    setIsProcessing(true);
+
     try {
       const response = await fetch('/api/files/speech/tts/manual', {
         method: 'POST',
         body: formData,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       if (!response.ok || !response.body) {
-        throw new Error('Failed to fetch audio');
+        throw new Error(`Failed to fetch audio: ${response.statusText}`);
       }
 
       const reader = response.body.getReader();
       const type = 'audio/mpeg';
-      const browserSupportsType =
-        typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
-      const chunks: ArrayBuffer[] = [];
-      let mediaSource: MediaSourceAppender | null = null;
+      const browserSupportsMediaSource = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+      const audioChunks: ArrayBuffer[] = [];
+      
+      mediaSourceRef.current = browserSupportsMediaSource ? new MediaSourceAppender(type) : null;
 
-      if (browserSupportsType) {
-        mediaSource = new MediaSourceAppender(type);
-        mediaSourceRef.current = mediaSource;
-        streamUrlRef.current = mediaSource.mediaSourceUrl;
-        autoPlayAudio(streamUrlRef.current);
+      if (mediaSourceRef.current) {
+        playAudioWithDomElement(mediaSourceRef.current.mediaSourceUrl);
       }
 
-      let done = false;
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
+      let doneReadingStream = false;
+      while (!doneReadingStream) {
+        const { value, done } = await reader.read();
+        doneReadingStream = done;
         if (value) {
           const buffer = (value.buffer as ArrayBuffer).slice(value.byteOffset, value.byteOffset + value.byteLength);
           if (cacheTTS) {
-            chunks.push(buffer);
+            audioChunks.push(buffer);
           }
-          if (browserSupportsType && mediaSource) {
-            mediaSource.addData(buffer);
+          if (mediaSourceRef.current) {
+            mediaSourceRef.current.addData(buffer);
           }
         }
-        done = readerDone;
       }
 
-      mediaSource?.close();
+      mediaSourceRef.current?.close(); // Signal end of stream to MediaSource
 
-      if (chunks.length) {
-        const audioBlob = new Blob(chunks, { type });
+      if (audioChunks.length > 0) { // If we collected chunks (either for caching or no MediaSource)
+        const audioBlob = new Blob(audioChunks, { type });
         if (cacheTTS && text) {
           const cache = await caches.open('tts-responses');
           await cache.put(new Request(text), new Response(audioBlob));
         }
-        if (!browserSupportsType) {
+        if (!browserSupportsMediaSource) { // If MediaSource wasn't supported, play the full blob
           const blobUrl = URL.createObjectURL(audioBlob);
-          streamUrlRef.current = blobUrl;
-          autoPlayAudio(blobUrl);
-          if (download) {
-            downloadAudio(blobUrl);
-          }
-        } else if (download) {
-          const blobUrl = URL.createObjectURL(audioBlob);
+          playAudioWithDomElement(blobUrl);
+        }
+        if (shouldDownload) { // Handle download regardless of MediaSource support, using the full blob
+          const blobUrl = URL.createObjectURL(audioBlob); // Create a new one if mediaSource was used.
           downloadAudio(blobUrl);
         }
       }
+      // If browserSupportsMediaSource and not downloading, playback was already initiated.
+      // If chunks.length is 0 and not downloading (e.g. cacheTTS is false, MediaSource was used), nothing more to do for playback.
+
     } catch (error) {
-      showToast({
-        message: localize('com_nav_audio_process_error', { 0: (error as Error).message }),
-        status: 'error',
-      });
-    } finally {
-      setIsStreaming(false);
+      console.error('Error during streaming TTS:', error);
+      showToast({ message: localize('com_nav_audio_process_error', { 0: (error as Error).message }), status: 'error' });
+      setIsProcessing(false);
+      cleanupOldAudioSource();
     }
+    // setIsProcessing(false) is called in playAudioWithDomElement's success/error or here if an earlier error.
+    // For streaming, successful playback means setIsProcessing(false) is called by playAudioWithDomElement.
+    // If streaming itself fails before playAudioWithDomElement is fully engaged,setIsProcessing(false) here.
+    // This might need adjustment if playAudioWithDomElement handles setIsProcessing(false) on its own errors too.
   };
 
-  const generateSpeechExternal = (text: string, download: boolean) => {
-    if (streamManualTTS) {
-      startStreaming(text, download);
-      return;
-    }
+  const generateSpeechExternal = async (text: string, shouldDownload: boolean) => {
+    cleanupOldAudioSource(); // Clean up any previous state before starting a new operation
+    setIsProcessing(true); // Set processing true at the beginning of any generation attempt
 
     if (cacheTTS) {
-      handleCachedResponse(text, download);
-    } else {
-      startMutation(text, download);
-    }
-  };
-
-  const handleCachedResponse = async (text: string, download: boolean) => {
-    const cachedResponse = await caches.match(text);
-    if (!cachedResponse) {
-      return startMutation(text, download);
-    }
-    const audioBlob = await cachedResponse.blob();
-    const blobUrl = URL.createObjectURL(audioBlob);
-    if (download) {
-      downloadAudio(blobUrl);
-    } else {
-      playAudioPromise(blobUrl);
-    }
-  };
-
-  const cancelSpeech = () => {
-    const messageAudio = document.getElementById(`audio-${messageId}`) as HTMLAudioElement | null;
-    const pauseAudio = (currentElement: HTMLAudioElement | null) => {
-      if (currentElement) {
-        currentElement.pause();
-        currentElement.src && URL.revokeObjectURL(currentElement.src);
-        audioRef.current = null;
+      const cachedResponse = await caches.match(text);
+      if (cachedResponse) {
+        try {
+          const audioBlob = await cachedResponse.blob();
+          const blobUrl = URL.createObjectURL(audioBlob);
+          if (shouldDownload) {
+            downloadAudio(blobUrl);
+            setIsProcessing(false); // Download doesn't involve async play, so reset processing
+          } else {
+            playAudioWithDomElement(blobUrl); // playAudioWithDomElement will handle setIsProcessing
+          }
+          return;
+        } catch(error) {
+          console.error("Error handling cached response:", error);
+          setIsProcessing(false);
+          showToast({ message: localize('com_nav_audio_process_error', { 0: (error as Error).message }), status: 'error' });
+        }
       }
-    };
-    pauseAudio(messageAudio);
-    pauseAudio(promiseAudioRef.current);
-    pauseAudio(audioRef.current);
-    if (streamUrlRef.current) {
-      URL.revokeObjectURL(streamUrlRef.current);
-      streamUrlRef.current = null;
     }
-    if (mediaSourceRef.current) {
-      mediaSourceRef.current.close();
-      mediaSourceRef.current = null;
+
+    if (streamManualTTS) {
+      startStreamingWithFetch(text, shouldDownload);
+    } else {
+      startFullDownloadMutation(text, shouldDownload);
     }
-    setIsSpeaking(false);
   };
 
-  const cancelPromiseSpeech = useCallback(() => {
-    if (promiseAudioRef.current) {
-      promiseAudioRef.current.pause();
-      promiseAudioRef.current.src && URL.revokeObjectURL(promiseAudioRef.current.src);
-      promiseAudioRef.current = null;
-      setIsSpeaking(false);
-    }
-  }, [setIsSpeaking]);
+  const cancelSpeech = useCallback(() => {
+    cleanupOldAudioSource();
+    setIsSpeaking(false);
+    setIsProcessing(false);
+  }, [cleanupOldAudioSource, setIsSpeaking]);
 
-  useEffect(() => cancelPromiseSpeech, [cancelPromiseSpeech]);
+  // Effect to clean up when the component unmounts or dependencies change significantly
+  useEffect(() => {
+    return () => {
+      cancelSpeech();
+    };
+  }, [cancelSpeech]);
 
-  const isFetching = useMemo(
-    () => isLast && globalIsFetching && !globalIsPlaying,
-    [globalIsFetching, globalIsPlaying, isLast],
+  const isLoadingCombined = useMemo(
+    () => (isLast && globalIsFetching && !globalIsPlaying) || isLoadingAxios || isProcessing,
+    [isLast, globalIsFetching, globalIsPlaying, isLoadingAxios, isProcessing],
   );
 
   const { data: voicesData = [] } = useVoicesQuery();
@@ -291,8 +330,8 @@ function useTextToSpeechExternal({
   return {
     generateSpeechExternal,
     cancelSpeech,
-    isLoading: isFetching || isLoading || isStreaming,
-    audioRef,
+    isLoading: isLoadingCombined,
+    audioRef, // This ref is now consistently used for playback
     voices: voicesData,
   };
 }
