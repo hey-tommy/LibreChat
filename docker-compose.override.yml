@@ -24,17 +24,27 @@
 services:
   api:
     container_name: LibreChat-Tom
-    image: librechat-tom
-    build:
-      context: .
-      target: node
+    image: ghcr.io/danny-avila/librechat-dev:latest
+    user: root
     volumes:
-      - type: bind
-        source: ./librechat.yaml
-        target: /app/librechat.yaml
+      - ./.env:/app/.env
+      - ./librechat.yaml:/app/librechat.yaml
+    environment:
+      - HOST=0.0.0.0
+      - NODE_ENV=development
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+    ports:
+      - "3080:3080"
+    depends_on:
+      - mongodb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   mongodb:
     image: mongo:7.0.5-jammy   # multi-arch tag with native arm64 layer
     platform: linux/arm64      # forces the right arch
+
+  # Frontend will be run directly on the host machine
 
 # # USE LIBRECHAT CONFIG FILE
 #   api:
