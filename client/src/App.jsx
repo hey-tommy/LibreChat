@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-qu
 import { ScreenshotProvider, ThemeProvider, useApiErrorBoundary } from './hooks';
 import { ToastProvider } from './Providers';
 import Toast from './components/ui/Toast';
+import AudioPlayer from './components/Audio/AudioPlayer';
 import { LiveAnnouncer } from '~/a11y';
 import { router } from './routes';
 
@@ -33,6 +34,7 @@ const App = () => {
               <ToastProvider>
                 <DndProvider backend={HTML5Backend}>
                   <RouterProvider router={router} />
+                  <AudioPlayer />
                   <ReactQueryDevtools initialIsOpen={false} position="top-right" />
                   <Toast />
                   <RadixToast.Viewport className="pointer-events-none fixed inset-0 z-[1000] mx-auto my-2 flex max-w-[560px] flex-col items-stretch justify-start md:pb-5" />

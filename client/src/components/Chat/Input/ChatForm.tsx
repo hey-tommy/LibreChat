@@ -1,6 +1,6 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { useWatch } from 'react-hook-form';
-import { useRecoilState, useRecoilValue } from 'recoil';
+import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
 import { Constants, isAssistantsEndpoint, isAgentsEndpoint } from 'librechat-data-provider';
 import {
   useChatContext,
@@ -22,17 +22,19 @@ import AttachFileChat from './Files/AttachFileChat';
 import FileFormChat from './Files/FileFormChat';
 import { TextareaAutosize } from '~/components';
 import { cn, removeFocusRings } from '~/utils';
+import { getLatestText } from '~/utils';
 import TextareaHeader from './TextareaHeader';
 import PromptsCommand from './PromptsCommand';
 import AudioRecorder from './AudioRecorder';
 import CollapseChat from './CollapseChat';
-import StreamAudio from './StreamAudio';
+import audioStore from '~/store/audio';
 import StopButton from './StopButton';
 import SendButton from './SendButton';
 import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
 import Mention from './Mention';
 import store from '~/store';
+import { useAuthContext } from '~/hooks';
 
 const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   const submitButtonRef = useRef<HTMLButtonElement>(null);
@@ -81,6 +83,14 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   } = useAddedChatContext();
   const assistantMap = useAssistantsMapContext();
   const showStopAdded = useRecoilValue(store.showStopButtonByIndex(addedIndex));
+
+  const activeRunId = useRecoilValue(store.activeRunFamily(index));
+  const [audioRunId, setAudioRunId] = useRecoilState(store.audioRunFamily(index));
+  const latestMessage = useRecoilValue(store.latestMessageFamily(index));
+  const isFetching = useRecoilValue(store.globalAudioFetchingFamily(index));
+  const voice = useRecoilValue(store.voice);
+  const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
+  const { token } = useAuthContext();
 
   const endpoint = useMemo(
     () => conversation?.endpointType ?? conversation?.endpoint,
@@ -189,6 +199,44 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     setIsEditingBadges(false);
     setBackupBadges([]);
   }, [backupBadges, setBadges, setIsEditingBadges]);
+
+  useEffect(() => {
+    const latestText = getLatestText(latestMessage);
+    const shouldFetch = !!(
+      token &&
+      TextToSpeech &&
+      automaticPlayback &&
+      !isSubmitting &&
+      latestMessage &&
+      !latestMessage.isCreatedByUser &&
+      latestText &&
+      latestMessage.messageId &&
+      !latestMessage.messageId.includes('_') &&
+      !isFetching &&
+      activeRunId != null &&
+      activeRunId !== audioRunId
+    );
+
+    if (!shouldFetch) {
+      return;
+    }
+
+    setAudioRunId(activeRunId);
+    setTTSRequest({ messageId: latestMessage.messageId, runId: activeRunId, index, voice });
+  }, [
+    TextToSpeech,
+    automaticPlayback,
+    latestMessage,
+    isSubmitting,
+    isFetching,
+    activeRunId,
+    audioRunId,
+    token,
+    index,
+    setAudioRunId,
+    setTTSRequest,
+    voice,
+  ]);
 
   const isMoreThanThreeRows = visualRowCount > 3;
 
@@ -335,7 +383,7 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                 )}
               </div>
             </div>
-            {TextToSpeech && automaticPlayback && <StreamAudio index={index} />}
+
           </div>
         </div>
       </div>

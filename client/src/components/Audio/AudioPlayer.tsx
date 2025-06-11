@@ -1,14 +1,14 @@
-import { useParams } from 'react-router-dom';
-import { useEffect, useCallback } from 'react';
-import { QueryKeys } from 'librechat-data-provider';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
-import type { TMessage } from 'librechat-data-provider';
-import { useCustomAudioRef, MediaSourceAppender, usePauseGlobalAudio } from '~/hooks/Audio';
-import { getLatestText, logger } from '~/utils';
 import { useAuthContext } from '~/hooks';
-import { globalAudioId } from '~/common';
+import { MediaSourceAppender, useCustomAudioRef, usePauseGlobalAudio } from '~/hooks/Audio';
 import store from '~/store';
+import audioStore, { TTSAudioRequest } from '~/store/audio';
+import { globalAudioId } from '~/common';
+import { logger } from '~/utils';
+
+const promiseTimeoutMessage = 'Reader promise timed out';
+const maxPromiseTime = 15000;
 
 function timeoutPromise(ms: number, message?: string) {
   return new Promise((_, reject) =>
@@ -16,61 +16,29 @@ function timeoutPromise(ms: number, message?: string) {
   );
 }
 
-const promiseTimeoutMessage = 'Reader promise timed out';
-const maxPromiseTime = 15000;
-
-export default function StreamAudio({ index = 0 }) {
+export default function AudioPlayer() {
   const { token } = useAuthContext();
-
+  const [request, setRequest] = useRecoilState(audioStore.ttsRequestAtom);
   const cacheTTS = useRecoilValue(store.cacheTTS);
   const playbackRate = useRecoilValue(store.playbackRate);
-
   const voice = useRecoilValue(store.voice);
-  const activeRunId = useRecoilValue(store.activeRunFamily(index));
-  const automaticPlayback = useRecoilValue(store.automaticPlayback);
-  const isSubmitting = useRecoilValue(store.isSubmittingFamily(index));
-  const latestMessage = useRecoilValue(store.latestMessageFamily(index));
+
+  const index = request?.index ?? 0;
   const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(index));
-  const [audioRunId, setAudioRunId] = useRecoilState(store.audioRunFamily(index));
-  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(index));
   const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(index));
-
+  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(index));
   const { audioRef } = useCustomAudioRef({ setIsPlaying });
-  const { pauseGlobalAudio } = usePauseGlobalAudio();
-
-  const { conversationId: paramId } = useParams();
-  const queryParam = paramId === 'new' ? paramId : latestMessage?.conversationId ?? paramId ?? '';
-
-  const queryClient = useQueryClient();
-  const getMessages = useCallback(
-    () => queryClient.getQueryData<TMessage[]>([QueryKeys.messages, queryParam]),
-    [queryParam, queryClient],
-  );
+  const { pauseGlobalAudio } = usePauseGlobalAudio(index);
+  const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
 
   useEffect(() => {
-    const latestText = getLatestText(latestMessage);
-
-    const shouldFetch = !!(
-      token != null &&
-      automaticPlayback &&
-      !isSubmitting &&
-      latestMessage &&
-      !latestMessage.isCreatedByUser &&
-      latestText &&
-      latestMessage.messageId &&
-      !latestMessage.messageId.includes('_') &&
-      !isFetching &&
-      activeRunId != null &&
-      activeRunId !== audioRunId
-    );
-
-    if (!shouldFetch) {
+    if (!request) {
       return;
     }
 
-    async function fetchAudio() {
+    async function fetchAudio(req: TTSAudioRequest) {
       setIsFetching(true);
-
+      setAudioRunId(req.runId ?? null);
       try {
         if (audioRef.current) {
           audioRef.current.pause();
@@ -78,17 +46,17 @@ export default function StreamAudio({ index = 0 }) {
           setGlobalAudioURL(null);
         }
 
-        let cacheKey = latestMessage?.text ?? '';
+        let cacheKey = req.messageId;
         const cache = await caches.open('tts-responses');
         const cachedResponse = await cache.match(cacheKey);
 
-        setAudioRunId(activeRunId);
         if (cachedResponse) {
           logger.log('Audio found in cache');
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
           setGlobalAudioURL(blobUrl);
           setIsFetching(false);
+          setRequest(null);
           return;
         }
 
@@ -96,21 +64,16 @@ export default function StreamAudio({ index = 0 }) {
         const response = await fetch('/api/files/speech/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messageId: latestMessage?.messageId, runId: activeRunId, voice }),
+          body: JSON.stringify({ messageId: req.messageId, runId: req.runId, voice: req.voice ?? voice }),
         });
 
-        if (!response.ok) {
+        if (!response.ok || !response.body) {
           throw new Error('Failed to fetch audio');
-        }
-        if (!response.body) {
-          throw new Error('Null Response body');
         }
 
         const reader = response.body.getReader();
-
         const type = 'audio/mpeg';
-        const browserSupportsType =
-          typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+        const browserSupportsType = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
         let mediaSource: MediaSourceAppender | undefined;
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
@@ -119,7 +82,6 @@ export default function StreamAudio({ index = 0 }) {
 
         let done = false;
         const chunks: ArrayBuffer[] = [];
-
         while (!done) {
           const readPromise = reader.read();
           const { value, done: readerDone } = (await Promise.race([
@@ -137,28 +99,13 @@ export default function StreamAudio({ index = 0 }) {
         }
 
         if (chunks.length) {
-          logger.log('Adding audio to cache');
-          const latestMessages = getMessages() ?? [];
-          const targetMessage = latestMessages.find(
-            (msg) => msg.messageId === latestMessage?.messageId,
-          );
-          cacheKey = targetMessage?.text ?? '';
-          if (!cacheKey) {
-            throw new Error('Cache key not found');
-          }
           const audioBlob = new Blob(chunks, { type });
           const cachedResponse = new Response(audioBlob);
           await cache.put(cacheKey, cachedResponse);
           if (!browserSupportsType) {
-            const unconsumedResponse = await cache.match(cacheKey);
-            if (!unconsumedResponse) {
-              throw new Error('Failed to fetch audio from cache');
-            }
-            const audioBlob = await unconsumedResponse.blob();
             const blobUrl = URL.createObjectURL(audioBlob);
             setGlobalAudioURL(blobUrl);
           }
-          setIsFetching(false);
         }
 
         logger.log('Audio stream reading ended');
@@ -168,30 +115,16 @@ export default function StreamAudio({ index = 0 }) {
           return;
         }
         logger.error('Error fetching audio:', error);
-        setIsFetching(false);
         setGlobalAudioURL(null);
       } finally {
         setIsFetching(false);
+        setRequest(null);
       }
     }
 
-    fetchAudio();
-  }, [
-    automaticPlayback,
-    setGlobalAudioURL,
-    setAudioRunId,
-    setIsFetching,
-    latestMessage,
-    isSubmitting,
-    activeRunId,
-    getMessages,
-    isFetching,
-    audioRunId,
-    cacheTTS,
-    audioRef,
-    voice,
-    token,
-  ]);
+    fetchAudio(request);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
 
   useEffect(() => {
     if (
@@ -207,11 +140,9 @@ export default function StreamAudio({ index = 0 }) {
 
   useEffect(() => {
     pauseGlobalAudio();
-    // We only want the effect to run when the paramId changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramId]);
+  }, []);
 
-  logger.log('StreamAudio.tsx - globalAudioURL:', globalAudioURL);
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
     <audio
