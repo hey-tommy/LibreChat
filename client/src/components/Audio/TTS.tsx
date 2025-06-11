@@ -107,7 +107,7 @@ export function ExternalTTS({ isLast, index, messageId, className }: TMessageAud
     if (isSpeaking) {
       pauseGlobalAudio();
     } else if (messageId) {
-      setTTSRequest({ messageId, index });
+      setTTSRequest({ messageId, index, runId: `${messageId}-${Date.now()}` });
     }
   };
 
