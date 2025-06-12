@@ -88,8 +88,11 @@ export function BrowserTTS({ isLast, index, messageId, content, className }: TMe
 
 export function ExternalTTS({ isLast, index, messageId, className }: TMessageAudio) {
   const localize = useLocalize();
-  const isLoading = useRecoilValue(store.globalAudioFetchingFamily(index));
-  const isSpeaking = useRecoilValue(store.globalAudioPlayingFamily(index));
+  const isLoadingGlobal = useRecoilValue(store.globalAudioFetchingFamily(index));
+  const isSpeakingGlobal = useRecoilValue(store.globalAudioPlayingFamily(index));
+  const currentMessageId = useRecoilValue(store.globalAudioMessageFamily(index));
+  const isLoading = isLoadingGlobal && currentMessageId === messageId;
+  const isSpeaking = isSpeakingGlobal && currentMessageId === messageId;
   const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
   const { pauseGlobalAudio } = usePauseGlobalAudio(index);
 
@@ -104,6 +107,9 @@ export function ExternalTTS({ isLast, index, messageId, className }: TMessageAud
   };
 
   const handleClick = () => {
+    if (isLoading && !isSpeaking) {
+      return;
+    }
     if (isSpeaking) {
       pauseGlobalAudio();
     } else if (messageId) {

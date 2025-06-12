@@ -250,6 +250,11 @@ const audioRunFamily = atomFamily<string | null, string | number | null>({
   default: null,
 });
 
+const globalAudioMessageFamily = atomFamily<string | null, string | number | null>({
+  key: 'globalAudioMessageByIndex',
+  default: null,
+});
+
 const messagesSiblingIdxFamily = atomFamily<number, string | null | undefined>({
   key: 'messagesSiblingIdx',
   default: 0,
@@ -407,6 +412,7 @@ export default {
   globalAudioURLFamily,
   activeRunFamily,
   audioRunFamily,
+  globalAudioMessageFamily,
   globalAudioPlayingFamily,
   globalAudioFetchingFamily,
   showPlusPopoverFamily,

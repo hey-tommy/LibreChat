@@ -7,6 +7,7 @@ function usePauseGlobalAudio(index = 0) {
   /* Global Audio Variables */
   const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
   const setActiveRunId = useSetRecoilState(store.activeRunFamily(index));
+  const setGlobalAudioMessage = useSetRecoilState(store.globalAudioMessageFamily(index));
   const setGlobalIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(index));
   const setIsGlobalAudioFetching = useSetRecoilState(store.globalAudioFetchingFamily(index));
   const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(index));
@@ -24,6 +25,7 @@ function usePauseGlobalAudio(index = 0) {
       setGlobalAudioURL(null);
       setActiveRunId(null);
       setAudioRunId(null);
+      setGlobalAudioMessage(null);
     }
   }, [
     setAudioRunId,

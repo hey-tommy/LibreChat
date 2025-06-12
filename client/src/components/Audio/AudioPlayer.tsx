@@ -30,6 +30,7 @@ export default function AudioPlayer() {
   const { audioRef } = useCustomAudioRef({ setIsPlaying });
   const { pauseGlobalAudio } = usePauseGlobalAudio(index);
   const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
+  const setGlobalAudioMessage = useSetRecoilState(store.globalAudioMessageFamily(index));
 
   useEffect(() => {
     if (!request) {
@@ -39,6 +40,7 @@ export default function AudioPlayer() {
     async function fetchAudio(req: TTSAudioRequest) {
       setIsFetching(true);
       setAudioRunId(req.runId ?? null);
+      setGlobalAudioMessage(req.messageId);
       try {
         if (audioRef.current) {
           audioRef.current.pause();
@@ -81,6 +83,7 @@ export default function AudioPlayer() {
         }
 
         let done = false;
+        let started = false;
         const chunks: ArrayBuffer[] = [];
         while (!done) {
           const readPromise = reader.read();
@@ -89,11 +92,17 @@ export default function AudioPlayer() {
             timeoutPromise(maxPromiseTime, promiseTimeoutMessage),
           ])) as ReadableStreamReadResult<ArrayBuffer>;
 
-          if (cacheTTS && value) {
-            chunks.push(value);
-          }
-          if (value && mediaSource) {
-            mediaSource.addData(value);
+          if (value) {
+            if (!started) {
+              started = true;
+              setIsFetching(false);
+            }
+            if (cacheTTS) {
+              chunks.push(value);
+            }
+            if (mediaSource) {
+              mediaSource.addData(value);
+            }
           }
           done = readerDone;
         }
@@ -118,6 +127,7 @@ export default function AudioPlayer() {
         setGlobalAudioURL(null);
       } finally {
         setIsFetching(false);
+        setGlobalAudioMessage(null);
         setRequest(null);
       }
     }
