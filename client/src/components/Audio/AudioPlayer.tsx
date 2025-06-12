@@ -27,7 +27,10 @@ export default function AudioPlayer() {
   const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(index));
   const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(index));
   const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(index));
-  const { audioRef } = useCustomAudioRef({ setIsPlaying });
+  const { audioRef } = useCustomAudioRef({
+    setIsPlaying,
+    onEnded: () => setGlobalAudioMessage(null),
+  });
   const { pauseGlobalAudio } = usePauseGlobalAudio(index);
   const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
   const setGlobalAudioMessage = useSetRecoilState(store.globalAudioMessageFamily(index));
@@ -58,6 +61,10 @@ export default function AudioPlayer() {
           const blobUrl = URL.createObjectURL(audioBlob);
           setGlobalAudioURL(blobUrl);
           setIsFetching(false);
+          setIsPlaying(true);
+          try {
+            await audioRef.current?.play();
+          } catch {}
           setRequest(null);
           return;
         }
@@ -96,6 +103,11 @@ export default function AudioPlayer() {
             if (!started) {
               started = true;
               setIsFetching(false);
+              setIsPlaying(true);
+              try {
+                await audioRef.current?.play();
+              } catch {}
+              logger.log('First audio chunk received');
             }
             if (cacheTTS) {
               chunks.push(value);
@@ -127,7 +139,6 @@ export default function AudioPlayer() {
         setGlobalAudioURL(null);
       } finally {
         setIsFetching(false);
-        setGlobalAudioMessage(null);
         setRequest(null);
       }
     }

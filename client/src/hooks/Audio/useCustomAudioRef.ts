@@ -15,8 +15,10 @@ type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement 
 
 export default function useCustomAudioRef({
   setIsPlaying,
+  onEnded,
 }: {
   setIsPlaying: (isPlaying: boolean) => void;
+  onEnded?: () => void;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
   useEffect(() => {
@@ -29,6 +31,9 @@ export default function useCustomAudioRef({
       if (audioRef.current) {
         audioRef.current.customEnded = true;
         URL.revokeObjectURL(audioRef.current.src);
+      }
+      if (typeof onEnded === 'function') {
+        onEnded();
       }
     };
 
@@ -92,7 +97,7 @@ export default function useCustomAudioRef({
         URL.revokeObjectURL(audioElement.src);
       }
     };
-  }, [setIsPlaying]);
+  }, [setIsPlaying, onEnded]);
 
   return { audioRef };
 }
