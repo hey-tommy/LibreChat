@@ -73,6 +73,17 @@ export default function useCustomAudioRef({
       }
     };
 
+    const handleError = () => {
+      console.log('global audio error');
+      setIsPlaying(false);
+      if (audioRef.current) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+      if (typeof onEnded === 'function') {
+        onEnded();
+      }
+    };
+
     const audioElement = audioRef.current;
 
     if (audioRef.current) {
@@ -80,6 +91,7 @@ export default function useCustomAudioRef({
       audioRef.current.addEventListener('play', handleStart);
       audioRef.current.addEventListener('pause', handlePause);
       audioRef.current.addEventListener('timeupdate', handleTimeUpdate);
+      audioRef.current.addEventListener('error', handleError);
 
       audioRef.current.customProps = {
         customStarted: false,
@@ -94,6 +106,7 @@ export default function useCustomAudioRef({
         audioElement.removeEventListener('play', handleStart);
         audioElement.removeEventListener('pause', handlePause);
         audioElement.removeEventListener('timeupdate', handleTimeUpdate);
+        audioElement.removeEventListener('error', handleError);
         URL.revokeObjectURL(audioElement.src);
       }
     };

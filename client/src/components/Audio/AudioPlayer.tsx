@@ -47,9 +47,12 @@ export default function AudioPlayer() {
       try {
         if (audioRef.current) {
           audioRef.current.pause();
-          URL.revokeObjectURL(audioRef.current.src);
-          setGlobalAudioURL(null);
+          if (audioRef.current.src) {
+            URL.revokeObjectURL(audioRef.current.src);
+          }
+          audioRef.current.src = '';
         }
+        setGlobalAudioURL(null);
 
         let cacheKey = req.messageId;
         const cache = await caches.open('tts-responses');
@@ -60,11 +63,18 @@ export default function AudioPlayer() {
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
           setGlobalAudioURL(blobUrl);
+          if (audioRef.current) {
+            audioRef.current.src = blobUrl;
+          }
           setIsFetching(false);
-          setIsPlaying(true);
           try {
             await audioRef.current?.play();
-          } catch {}
+            setIsPlaying(true);
+          } catch (e) {
+            logger.error('Error playing cached audio', e);
+            setIsPlaying(false);
+            setGlobalAudioMessage(null);
+          }
           setRequest(null);
           return;
         }
@@ -87,6 +97,9 @@ export default function AudioPlayer() {
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
           setGlobalAudioURL(mediaSource.mediaSourceUrl);
+          if (audioRef.current) {
+            audioRef.current.src = mediaSource.mediaSourceUrl;
+          }
         }
 
         let done = false;
@@ -103,10 +116,14 @@ export default function AudioPlayer() {
             if (!started) {
               started = true;
               setIsFetching(false);
-              setIsPlaying(true);
               try {
                 await audioRef.current?.play();
-              } catch {}
+                setIsPlaying(true);
+              } catch (e) {
+                logger.error('Error starting audio playback', e);
+                setIsPlaying(false);
+                setGlobalAudioMessage(null);
+              }
               logger.log('First audio chunk received');
             }
             if (cacheTTS) {
@@ -126,6 +143,9 @@ export default function AudioPlayer() {
           if (!browserSupportsType) {
             const blobUrl = URL.createObjectURL(audioBlob);
             setGlobalAudioURL(blobUrl);
+            if (audioRef.current) {
+              audioRef.current.src = blobUrl;
+            }
           }
         }
 
