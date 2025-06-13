@@ -1,6 +1,6 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { useWatch } from 'react-hook-form';
-import { useRecoilState, useRecoilValue } from 'recoil';
+import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
 import { Constants, isAssistantsEndpoint, isAgentsEndpoint } from 'librechat-data-provider';
 import {
   useChatContext,
@@ -21,16 +21,17 @@ import { mainTextareaId, BadgeItem } from '~/common';
 import AttachFileChat from './Files/AttachFileChat';
 import FileFormChat from './Files/FileFormChat';
 import { TextareaAutosize } from '~/components';
-import { cn, removeFocusRings } from '~/utils';
+import { cn, removeFocusRings, getLatestText } from '~/utils';
 import TextareaHeader from './TextareaHeader';
 import PromptsCommand from './PromptsCommand';
 import AudioRecorder from './AudioRecorder';
 import CollapseChat from './CollapseChat';
-import StreamAudio from './StreamAudio';
 import StopButton from './StopButton';
 import SendButton from './SendButton';
 import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
+import { useAuthContext } from '~/hooks';
+import { ttsRequestAtom } from '~/store/audio';
 import Mention from './Mention';
 import store from '~/store';
 
@@ -60,6 +61,11 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   const [showMentionPopover, setShowMentionPopover] = useRecoilState(
     store.showMentionPopoverFamily(index),
   );
+  const latestMessage = useRecoilValue(store.latestMessageFamily(index));
+  const activeRunId = useRecoilValue(store.activeRunFamily(index));
+  const [audioRunId, setAudioRunId] = useRecoilState(store.audioRunFamily(index));
+  const setTTSRequest = useSetRecoilState(ttsRequestAtom);
+  const { token } = useAuthContext();
 
   const { requiresKey } = useRequiresKey();
   const methods = useChatFormContext();
@@ -151,6 +157,36 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   });
 
   useQueryParams({ textAreaRef });
+
+  useEffect(() => {
+    const latestText = getLatestText(latestMessage);
+    const shouldRequest = !!(
+      token &&
+      automaticPlayback &&
+      !isSubmitting &&
+      latestMessage &&
+      !latestMessage.isCreatedByUser &&
+      latestText &&
+      latestMessage.messageId &&
+      !latestMessage.messageId.includes('_') &&
+      activeRunId &&
+      activeRunId !== audioRunId
+    );
+
+    if (shouldRequest) {
+      setAudioRunId(activeRunId);
+      setTTSRequest({ messageId: latestMessage.messageId, runId: activeRunId });
+    }
+  }, [
+    token,
+    automaticPlayback,
+    isSubmitting,
+    latestMessage,
+    activeRunId,
+    audioRunId,
+    setAudioRunId,
+    setTTSRequest,
+  ]);
 
   const { ref, ...registerProps } = methods.register('text', {
     required: true,
@@ -335,7 +371,6 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
                 )}
               </div>
             </div>
-            {TextToSpeech && automaticPlayback && <StreamAudio index={index} />}
           </div>
         </div>
       </div>
