@@ -2,6 +2,7 @@
 import { useEffect, useMemo } from 'react';
 import { useRecoilValue, useSetRecoilState } from 'recoil';
 import type { TMessageAudio } from '~/common';
+import { parseTextParts } from 'librechat-data-provider';
 import { useLocalize, useTTSBrowser } from '~/hooks';
 import { usePauseGlobalAudio } from '~/hooks/Audio';
 import audioStore from '~/store/audio';
@@ -86,7 +87,7 @@ export function BrowserTTS({ isLast, index, messageId, content, className }: TMe
   );
 }
 
-export function ExternalTTS({ isLast, index, messageId, className }: TMessageAudio) {
+export function ExternalTTS({ isLast, index, messageId, content, className }: TMessageAudio) {
   const localize = useLocalize();
   const isLoadingGlobal = useRecoilValue(store.globalAudioFetchingFamily(index));
   const isSpeakingGlobal = useRecoilValue(store.globalAudioPlayingFamily(index));
@@ -113,7 +114,9 @@ export function ExternalTTS({ isLast, index, messageId, className }: TMessageAud
     if (isSpeaking) {
       pauseGlobalAudio();
     } else if (messageId) {
-      setTTSRequest({ messageId, index, runId: `${messageId}-${Date.now()}` });
+      const messageContent = content ?? '';
+      const parsed = typeof messageContent === 'string' ? messageContent : parseTextParts(messageContent);
+      setTTSRequest({ messageId, text: parsed, index, runId: `${messageId}-${Date.now()}` });
     }
   };
 

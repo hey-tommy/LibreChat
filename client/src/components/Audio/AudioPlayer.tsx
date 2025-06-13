@@ -57,7 +57,7 @@ export default function AudioPlayer() {
         }
         setGlobalAudioURL(null);
 
-        let cacheKey = req.messageId;
+        let cacheKey = req.text ?? req.messageId;
         const cache = await caches.open('tts-responses');
         const cachedResponse = await cache.match(cacheKey);
 
@@ -151,7 +151,7 @@ export default function AudioPlayer() {
           const audioBlob = new Blob(chunks, { type });
           const cachedResponse = new Response(audioBlob);
           await cache.put(cacheKey, cachedResponse);
-          logger.log('Cached audio response for', req.messageId);
+          logger.log('Cached audio response for', cacheKey);
           if (!browserSupportsType) {
             const blobUrl = URL.createObjectURL(audioBlob);
             setGlobalAudioURL(blobUrl);

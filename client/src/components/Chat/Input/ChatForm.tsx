@@ -222,7 +222,13 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
     }
 
     setAudioRunId(activeRunId);
-    setTTSRequest({ messageId: latestMessage.messageId, runId: activeRunId, index, voice });
+    setTTSRequest({
+      messageId: latestMessage.messageId,
+      runId: activeRunId,
+      index,
+      voice,
+      text: latestText,
+    });
   }, [
     TextToSpeech,
     automaticPlayback,
