@@ -1,7 +1,8 @@
 import React from 'react';
 import { useRecoilState } from 'recoil';
 import type { Option } from '~/common';
-import { useLocalize, useTTSBrowser, useTTSExternal } from '~/hooks';
+import { useLocalize, useTTSBrowser } from '~/hooks';
+import { useVoicesQuery } from '~/data-provider';
 import { Dropdown } from '~/components/ui';
 import { logger } from '~/utils';
 import store from '~/store';
@@ -37,7 +38,7 @@ export function BrowserVoiceDropdown() {
 
 export function ExternalVoiceDropdown() {
   const localize = useLocalize();
-  const { voices = [] } = useTTSExternal();
+  const { data: voices = [] } = useVoicesQuery();
   const [voice, setVoice] = useRecoilState(store.voice);
 
   const handleVoiceChange = (newValue?: string | Option) => {
