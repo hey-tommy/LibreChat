@@ -108,8 +108,7 @@ export default function useCustomAudioRef({
         audioElement.removeEventListener('pause', handlePause);
         audioElement.removeEventListener('timeupdate', handleTimeUpdate);
         audioElement.removeEventListener('error', handleError);
-        URL.revokeObjectURL(audioElement.src);
-        logger.log('Revoked audio element URL');
+        logger.log('Cleaned up audio element');
       }
     };
   }, [setIsPlaying, onEnded]);
