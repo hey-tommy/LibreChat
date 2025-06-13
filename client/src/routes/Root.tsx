@@ -17,6 +17,7 @@ import {
 import TermsAndConditionsModal from '~/components/ui/TermsAndConditionsModal';
 import { useUserTermsQuery, useGetStartupConfig } from '~/data-provider';
 import { Nav, MobileNav } from '~/components/Nav';
+import AudioPlayer from '~/components/Audio/AudioPlayer';
 import { Banner } from '~/components/Banners';
 
 export default function Root() {
@@ -70,6 +71,7 @@ export default function Root() {
                 <div className="relative flex h-full max-w-full flex-1 flex-col overflow-hidden">
                   <MobileNav setNavVisible={setNavVisible} />
                   <Outlet context={{ navVisible, setNavVisible } satisfies ContextType} />
+                  <AudioPlayer />
                 </div>
               </div>
             </div>
