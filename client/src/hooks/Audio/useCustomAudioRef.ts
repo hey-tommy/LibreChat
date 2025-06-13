@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { logger } from '~/utils';
 
 interface CustomAudioElement extends HTMLAudioElement {
   customStarted?: boolean;
@@ -15,8 +16,10 @@ type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement 
 
 export default function useCustomAudioRef({
   setIsPlaying,
+  onEnded,
 }: {
   setIsPlaying: (isPlaying: boolean) => void;
+  onEnded?: () => void;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
   useEffect(() => {
@@ -25,23 +28,26 @@ export default function useCustomAudioRef({
 
     const handleEnded = () => {
       setIsPlaying(false);
-      console.log('global audio ended');
+      logger.log('global audio ended');
       if (audioRef.current) {
         audioRef.current.customEnded = true;
         URL.revokeObjectURL(audioRef.current.src);
+      }
+      if (typeof onEnded === 'function') {
+        onEnded();
       }
     };
 
     const handleStart = () => {
       setIsPlaying(true);
-      console.log('global audio started');
+      logger.log('global audio started');
       if (audioRef.current) {
         audioRef.current.customStarted = true;
       }
     };
 
     const handlePause = () => {
-      console.log('global audio paused');
+      logger.log('global audio paused');
       if (audioRef.current) {
         audioRef.current.customPaused = true;
       }
@@ -61,10 +67,21 @@ export default function useCustomAudioRef({
         lastTimeUpdate = currentTime;
 
         if (sameTimeUpdateCount >= 1) {
-          console.log('Detected end of audio based on time update');
+          logger.log('Detected end of audio based on time update');
           audioRef.current.pause();
           handleEnded();
         }
+      }
+    };
+
+    const handleError = () => {
+      logger.log('global audio error');
+      setIsPlaying(false);
+      if (audioRef.current && audioRef.current.src) {
+        URL.revokeObjectURL(audioRef.current.src);
+      }
+      if (typeof onEnded === 'function') {
+        onEnded();
       }
     };
 
@@ -75,6 +92,7 @@ export default function useCustomAudioRef({
       audioRef.current.addEventListener('play', handleStart);
       audioRef.current.addEventListener('pause', handlePause);
       audioRef.current.addEventListener('timeupdate', handleTimeUpdate);
+      audioRef.current.addEventListener('error', handleError);
 
       audioRef.current.customProps = {
         customStarted: false,
@@ -89,10 +107,11 @@ export default function useCustomAudioRef({
         audioElement.removeEventListener('play', handleStart);
         audioElement.removeEventListener('pause', handlePause);
         audioElement.removeEventListener('timeupdate', handleTimeUpdate);
-        URL.revokeObjectURL(audioElement.src);
+        audioElement.removeEventListener('error', handleError);
+        logger.log('Cleaned up audio element');
       }
     };
-  }, [setIsPlaying]);
+  }, [setIsPlaying, onEnded]);
 
   return { audioRef };
 }

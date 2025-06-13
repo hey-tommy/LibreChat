@@ -1,15 +1,15 @@
-import { useRecoilState, useRecoilValue } from 'recoil';
+import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
 import { useRef, useMemo, useEffect, useState } from 'react';
 import { parseTextParts } from 'librechat-data-provider';
 import type { TMessageContentParts } from 'librechat-data-provider';
 import type { Option } from '~/common';
-import useTextToSpeechExternal from '~/hooks/Input/useTextToSpeechExternal';
 import useTextToSpeechBrowser from '~/hooks/Input/useTextToSpeechBrowser';
 import useGetAudioSettings from '~/hooks/Input/useGetAudioSettings';
 import useAudioRef from '~/hooks/Audio/useAudioRef';
 import { usePauseGlobalAudio } from '../Audio';
 import { logger } from '~/utils';
 import store from '~/store';
+import audioStore from '~/store/audio';
 
 type TUseTextToSpeech = {
   messageId?: string;
@@ -28,6 +28,7 @@ const useTextToSpeech = (props?: TUseTextToSpeech) => {
 
   const { textToSpeechEndpoint } = useGetAudioSettings();
   const { pauseGlobalAudio } = usePauseGlobalAudio(index);
+  const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
   const [voice, setVoice] = useRecoilState(store.voice);
   const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
 
@@ -39,18 +40,14 @@ const useTextToSpeech = (props?: TUseTextToSpeech) => {
     voices: voicesLocal,
   } = useTextToSpeechBrowser({ setIsSpeaking });
 
-  const {
-    generateSpeechExternal,
-    cancelSpeech: cancelSpeechExternal,
-    isLoading: isLoadingExternal,
-    voices: voicesExternal,
-  } = useTextToSpeechExternal({
-    setIsSpeaking,
-    audioRef,
-    messageId,
-    isLast,
-    index,
-  });
+  const generateSpeechExternal = (text: string) => {
+    setTTSRequest({ messageId: messageId ?? '', index });
+  };
+  const cancelSpeechExternal = () => {
+    pauseGlobalAudio();
+  };
+  const isLoadingExternal = useRecoilValue(store.globalAudioFetchingFamily(index));
+  const voicesExternal: Option[] = [];
 
   const generateSpeech = useMemo(() => {
     const map = {
