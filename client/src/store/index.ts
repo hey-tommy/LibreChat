@@ -11,6 +11,7 @@ import prompts from './prompts';
 import lang from './language';
 import settings from './settings';
 import misc from './misc';
+import audio from './audio';
 import isTemporary from './temporary';
 export * from './agents';
 
@@ -27,6 +28,7 @@ export default {
   ...preset,
   ...lang,
   ...settings,
+  ...audio,
   ...misc,
   ...isTemporary,
 };
