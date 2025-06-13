@@ -41,6 +41,7 @@ export default function AudioPlayer() {
     }
 
     async function fetchAudio(req: TTSAudioRequest) {
+      logger.log('Starting fetchAudio', req);
       setIsFetching(true);
       setAudioRunId(req.runId ?? null);
       setGlobalAudioMessage(req.messageId);
@@ -48,6 +49,7 @@ export default function AudioPlayer() {
         if (audioRef.current) {
           audioRef.current.pause();
           if (audioRef.current.src) {
+            logger.log('Revoke previous audio src');
             URL.revokeObjectURL(audioRef.current.src);
           }
           audioRef.current.src = '';
@@ -60,16 +62,18 @@ export default function AudioPlayer() {
         const cachedResponse = await cache.match(cacheKey);
 
         if (cachedResponse) {
-          logger.log('Audio found in cache');
+          logger.log('Audio found in cache for message', req.messageId);
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
           setGlobalAudioURL(blobUrl);
           if (audioRef.current) {
+            logger.log('Setting audio src from cache', blobUrl);
             audioRef.current.src = blobUrl;
             audioRef.current.load();
           }
           setIsFetching(false);
           try {
+            logger.log('Playing cached audio');
             await audioRef.current?.play();
             setIsPlaying(true);
           } catch (e) {
@@ -81,7 +85,7 @@ export default function AudioPlayer() {
           return;
         }
 
-        logger.log('Fetching audio...', navigator.userAgent);
+        logger.log('Fetching audio...', navigator.userAgent, req);
         const response = await fetch('/api/files/speech/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -99,8 +103,10 @@ export default function AudioPlayer() {
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
           const mediaSourceUrl = mediaSource.mediaSourceUrl;
+          logger.log('Created media source', mediaSourceUrl);
           setGlobalAudioURL(mediaSourceUrl);
           if (audioRef.current) {
+            logger.log('Setting audio src for stream', mediaSourceUrl);
             audioRef.current.src = mediaSourceUrl;
             audioRef.current.load();
           }
@@ -121,6 +127,7 @@ export default function AudioPlayer() {
               started = true;
               setIsFetching(false);
               try {
+                logger.log('Attempting play after first chunk');
                 await audioRef.current?.play();
                 setIsPlaying(true);
               } catch (e) {
@@ -144,24 +151,27 @@ export default function AudioPlayer() {
           const audioBlob = new Blob(chunks, { type });
           const cachedResponse = new Response(audioBlob);
           await cache.put(cacheKey, cachedResponse);
+          logger.log('Cached audio response for', req.messageId);
           if (!browserSupportsType) {
             const blobUrl = URL.createObjectURL(audioBlob);
             setGlobalAudioURL(blobUrl);
             if (audioRef.current) {
+              logger.log('Setting audio src to cached blob URL', blobUrl);
               audioRef.current.src = blobUrl;
             }
           }
         }
 
-        logger.log('Audio stream reading ended');
+        logger.log('Audio stream reading ended for message', req.messageId);
       } catch (error) {
         if (error?.['message'] !== promiseTimeoutMessage) {
           logger.log(promiseTimeoutMessage);
           return;
         }
-        logger.error('Error fetching audio:', error);
+        logger.error('Error fetching audio for message', req.messageId, error);
         setGlobalAudioURL(null);
       } finally {
+        logger.log('Cleanup after fetchAudio');
         setIsFetching(false);
         setRequest(null);
       }
