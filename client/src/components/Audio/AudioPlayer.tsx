@@ -51,6 +51,7 @@ export default function AudioPlayer() {
             URL.revokeObjectURL(audioRef.current.src);
           }
           audioRef.current.src = '';
+          audioRef.current.load();
         }
         setGlobalAudioURL(null);
 
@@ -65,6 +66,7 @@ export default function AudioPlayer() {
           setGlobalAudioURL(blobUrl);
           if (audioRef.current) {
             audioRef.current.src = blobUrl;
+            audioRef.current.load();
           }
           setIsFetching(false);
           try {
@@ -96,9 +98,11 @@ export default function AudioPlayer() {
         let mediaSource: MediaSourceAppender | undefined;
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
-          setGlobalAudioURL(mediaSource.mediaSourceUrl);
+          const mediaSourceUrl = mediaSource.mediaSourceUrl;
+          setGlobalAudioURL(mediaSourceUrl);
           if (audioRef.current) {
-            audioRef.current.src = mediaSource.mediaSourceUrl;
+            audioRef.current.src = mediaSourceUrl;
+            audioRef.current.load();
           }
         }
 
@@ -199,7 +203,6 @@ export default function AudioPlayer() {
       }}
       src={globalAudioURL ?? undefined}
       id={globalAudioId}
-      autoPlay
     />
   );
 }

@@ -76,7 +76,7 @@ export default function useCustomAudioRef({
     const handleError = () => {
       console.log('global audio error');
       setIsPlaying(false);
-      if (audioRef.current) {
+      if (audioRef.current && audioRef.current.src) {
         URL.revokeObjectURL(audioRef.current.src);
       }
       if (typeof onEnded === 'function') {
