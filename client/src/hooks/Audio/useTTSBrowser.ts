@@ -17,16 +17,16 @@ type TUseTextToSpeech = {
 };
 
 const useTTSBrowser = (props?: TUseTextToSpeech) => {
-  const { content, isLast = false, index = 0 } = props ?? {};
+  const { content, isLast = false, index = 0, messageId } = props ?? {};
 
   const isMouseDownRef = useRef(false);
   const timerRef = useRef<number | undefined>(undefined);
   const [isSpeakingState, setIsSpeaking] = useState(false);
   const { audioRef } = useAudioRef({ setIsPlaying: setIsSpeaking });
 
-  const { pauseGlobalAudio } = usePauseGlobalAudio(index);
+  const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
   const [voice, setVoice] = useRecoilState(store.voice);
-  const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
+  const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(messageId ?? null));
 
   const isSpeaking = isSpeakingState || (isLast && globalIsPlaying);
 

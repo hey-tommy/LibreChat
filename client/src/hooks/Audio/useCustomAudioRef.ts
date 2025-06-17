@@ -15,25 +15,45 @@ type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement 
 
 export default function useCustomAudioRef({
   setIsPlaying,
+  setIsFetching,
+  clearRequest,
 }: {
   setIsPlaying: (isPlaying: boolean) => void;
+  setIsFetching?: (isFetching: boolean) => void;
+  clearRequest?: () => void;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
   useEffect(() => {
+    // Wait until the <audio> element is mounted
+    if (!audioRef.current) {
+      return;
+    }
+
+    const audioElement = audioRef.current;
+
     let lastTimeUpdate: number | null = null;
     let sameTimeUpdateCount = 0;
 
     const handleEnded = () => {
       setIsPlaying(false);
+      // Clear request when playback ends to reset button state
+      if (clearRequest) {
+        clearRequest();
+      }
       console.log('global audio ended');
       if (audioRef.current) {
         audioRef.current.customEnded = true;
-        URL.revokeObjectURL(audioRef.current.src);
+        // Remove URL revocation from here - it's already in the cleanup function
+        // and we don't want to revoke too early
       }
     };
 
     const handleStart = () => {
+      // Clear fetching spinner and show stop button when audio actually starts playing
       setIsPlaying(true);
+      if (setIsFetching) {
+        setIsFetching(false);
+      }
       console.log('global audio started');
       if (audioRef.current) {
         audioRef.current.customStarted = true;
@@ -68,8 +88,6 @@ export default function useCustomAudioRef({
       }
     };
 
-    const audioElement = audioRef.current;
-
     if (audioRef.current) {
       audioRef.current.addEventListener('ended', handleEnded);
       audioRef.current.addEventListener('play', handleStart);
@@ -89,10 +107,13 @@ export default function useCustomAudioRef({
         audioElement.removeEventListener('play', handleStart);
         audioElement.removeEventListener('pause', handlePause);
         audioElement.removeEventListener('timeupdate', handleTimeUpdate);
-        URL.revokeObjectURL(audioElement.src);
+        // Revoke blob URL only after actual playback completion or manual stop.
+        if (audioElement.customEnded || audioElement.customPaused) {
+          URL.revokeObjectURL(audioElement.src);
+        }
       }
     };
-  }, [setIsPlaying]);
+  }, []);
 
   return { audioRef };
 }

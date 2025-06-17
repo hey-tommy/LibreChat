@@ -93,6 +93,9 @@ export function ExternalTTS({ isLast, index, messageId, className }: TMessageAud
   const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
   const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
 
+  // Debug logging for state updates
+  console.log(`[ExternalTTS ${messageId}] State: isLoading=${isLoading}, isSpeaking=${isSpeaking}`);
+
   const renderIcon = (size: string) => {
     if (isLoading === true) {
       return <Spinner size={size} />;
@@ -107,7 +110,13 @@ export function ExternalTTS({ isLast, index, messageId, className }: TMessageAud
     if (isSpeaking) {
       pauseGlobalAudio();
     } else if (messageId) {
-      setTTSRequest({ messageId, index });
+      const requestObj = { 
+        messageId, 
+        index, 
+        runId: `${messageId}-${Date.now()}` 
+      };
+      console.log('[ExternalTTS] Setting TTS request:', requestObj);
+      setTTSRequest(requestObj);
     }
   };
 
