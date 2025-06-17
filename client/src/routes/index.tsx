@@ -9,6 +9,7 @@ import {
   TwoFactorScreen,
 } from '~/components/Auth';
 import { AuthContextProvider } from '~/hooks/AuthContext';
+import AudioPlayer from '~/components/Audio/AudioPlayer';
 import RouteErrorBoundary from './RouteErrorBoundary';
 import StartupLayout from './Layouts/Startup';
 import LoginLayout from './Layouts/Login';
@@ -22,6 +23,7 @@ const AuthLayout = () => (
   <AuthContextProvider>
     <Outlet />
     <ApiErrorWatcher />
+    <AudioPlayer />
   </AuthContextProvider>
 );
 
