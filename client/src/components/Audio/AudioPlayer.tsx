@@ -165,10 +165,10 @@ export default function AudioPlayer() {
       } finally {
         // Always clear these states to prevent stuck UI
         setIsFetching(false);
-        //if (error) {
-        //  setIsPlaying(false); // Also reset playing state on error to get back to Read Aloud
-        //}
-        //setRequest(null);
+        if (error) {
+          setIsPlaying(false); // Also reset playing state on error to get back to Read Aloud
+        }
+        setRequest(null);
       }
     }
 
