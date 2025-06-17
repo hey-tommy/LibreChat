@@ -88,10 +88,10 @@ export function BrowserTTS({ isLast, index, messageId, content, className }: TMe
 
 export function ExternalTTS({ isLast, index, messageId, className }: TMessageAudio) {
   const localize = useLocalize();
-  const isLoading = useRecoilValue(store.globalAudioFetchingFamily(index));
-  const isSpeaking = useRecoilValue(store.globalAudioPlayingFamily(index));
+  const isLoading = useRecoilValue(store.globalAudioFetchingFamily(messageId ?? null));
+  const isSpeaking = useRecoilValue(store.globalAudioPlayingFamily(messageId ?? null));
   const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
-  const { pauseGlobalAudio } = usePauseGlobalAudio(index);
+  const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
 
   const renderIcon = (size: string) => {
     if (isLoading === true) {

@@ -24,12 +24,13 @@ export default function AudioPlayer() {
   const voice = useRecoilValue(store.voice);
 
   const index = request?.index ?? 0;
-  const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(index));
-  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(index));
-  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(index));
+  const messageId = request?.messageId ?? null;
+  const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
+  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
+  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(messageId));
   const { audioRef } = useCustomAudioRef({ setIsPlaying });
-  const { pauseGlobalAudio } = usePauseGlobalAudio(index);
-  const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
+  const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
+  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
 
   useEffect(() => {
     if (!request) {
@@ -124,7 +125,7 @@ export default function AudioPlayer() {
 
     fetchAudio(request);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request]);
+  }, [request?.runId, request?.messageId]);
 
   useEffect(() => {
     if (
