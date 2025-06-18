@@ -1,15 +1,14 @@
 import { useCallback } from 'react';
-import { useRecoilState, useSetRecoilState } from 'recoil';
+import { useRecoilState } from 'recoil';
 import { globalAudioId } from '~/common';
 import store from '~/store';
+import { useAudioStateManager } from '.';
 
 function usePauseGlobalAudio(messageId: string | null = null) {
-  /* Global Audio Variables */
-  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
-  const setActiveRunId = useSetRecoilState(store.activeRunFamily(messageId));
-  const setGlobalIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
-  const setIsGlobalAudioFetching = useSetRecoilState(store.globalAudioFetchingFamily(messageId));
-  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
+  const stateManager = useAudioStateManager();
+  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(
+    store.globalAudioURLFamily(messageId),
+  );
 
   const pauseGlobalAudio = useCallback(() => {
     if (globalAudioURL != null && globalAudioURL !== '') {
@@ -17,22 +16,12 @@ function usePauseGlobalAudio(messageId: string | null = null) {
       if (globalAudio) {
         console.log('Pausing global audio', globalAudioURL);
         (globalAudio as HTMLAudioElement).pause();
-        setGlobalIsPlaying(false);
       }
       URL.revokeObjectURL(globalAudioURL);
-      setIsGlobalAudioFetching(false);
       setGlobalAudioURL(null);
-      setActiveRunId(null);
-      setAudioRunId(null);
+      stateManager.endPlayback(messageId);
     }
-  }, [
-    setAudioRunId,
-    setActiveRunId,
-    globalAudioURL,
-    setGlobalAudioURL,
-    setGlobalIsPlaying,
-    setIsGlobalAudioFetching,
-  ]);
+  }, [globalAudioURL, setGlobalAudioURL, stateManager, messageId]);
 
   return { pauseGlobalAudio };
 }

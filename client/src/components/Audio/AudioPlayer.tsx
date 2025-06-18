@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
 import { useAuthContext } from '~/hooks';
-import { MediaSourceAppender, useCustomAudioRef, usePauseGlobalAudio } from '~/hooks/Audio';
+import { MediaSourceAppender, useCustomAudioRef, usePauseGlobalAudio, useAudioStateManager } from '~/hooks/Audio';
 import store from '~/store';
 import audioStore, { TTSAudioRequest } from '~/store/audio';
 import { globalAudioId } from '~/common';
@@ -25,16 +25,17 @@ export default function AudioPlayer() {
 
   const index = request?.index ?? 0;
   const messageId = request?.messageId ?? null;
-  const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
-  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
-  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(messageId));
-  const { audioRef } = useCustomAudioRef({ 
-    setIsPlaying,
-    setIsFetching,
-    clearRequest: () => setRequest(null)
+  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(
+    store.globalAudioURLFamily(messageId),
+  );
+  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
+  const stateManager = useAudioStateManager();
+  const { audioRef } = useCustomAudioRef({
+    messageId,
+    stateManager,
+    clearRequest: () => setRequest(null),
   });
   const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
-  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
 
   useEffect(() => {
     logger.log('[AudioPlayer] useEffect triggered, request:', request);
@@ -46,7 +47,7 @@ export default function AudioPlayer() {
 
     async function fetchAudio(req: TTSAudioRequest) {
       logger.log('[AudioPlayer] Starting fetchAudio for:', req.messageId);
-      setIsFetching(true); // Show spinner
+      stateManager.startRequest(req.messageId, req.runId ?? null);
       setAudioRunId(req.runId ?? null);
       try {
         if (audioRef.current) {
@@ -63,14 +64,9 @@ export default function AudioPlayer() {
           logger.log('Audio found in cache for:', req.messageId);
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
-          
-          // Set the flag to start playback
-          setIsPlaying(true);
+
+          stateManager.startPlayback(req.messageId, blobUrl);
           setGlobalAudioURL(blobUrl);
-          
-          // Force clear fetching now to ensure spinner goes away
-          // The play event may not fire reliably, so we clear the spinner here
-          setIsFetching(false);
           
           // Explicitly try to play the audio
           setTimeout(() => {
@@ -79,14 +75,11 @@ export default function AudioPlayer() {
               audioRef.current.play()
                 .catch(err => {
                   logger.error('Error playing cached audio:', err);
-                  // On error, clear all flags to reset UI state
-                  setIsPlaying(false);
-                  setIsFetching(false);
+                  stateManager.endPlayback(req.messageId);
                 });
             } else {
               // If audioRef is somehow not available, reset state
-              setIsPlaying(false);
-              setIsFetching(false);
+              stateManager.endPlayback(req.messageId);
             }
           }, 50);
           
@@ -127,10 +120,7 @@ export default function AudioPlayer() {
           if (value) {
             if (!started) {
               started = true;
-              // Force set isPlaying and clear isFetching to ensure UI transition
-              // The play event may be unreliable in some browsers
-              setIsPlaying(true);
-              setIsFetching(false);
+              stateManager.startPlayback(req.messageId);
               logger.log('First audio chunk received, streaming started - setting UI state');
             }
             if (cacheTTS) {
@@ -163,11 +153,7 @@ export default function AudioPlayer() {
         }
         setGlobalAudioURL(null);
       } finally {
-        // Always clear these states to prevent stuck UI
-        setIsFetching(false);
-        if (error) {
-          setIsPlaying(false); // Also reset playing state on error to get back to Read Aloud
-        }
+        stateManager.endPlayback(req.messageId);
         setRequest(null);
       }
     }
