@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import useAudioStateManager from './useAudioStateManager';
 
 interface CustomAudioElement extends HTMLAudioElement {
   customStarted?: boolean;
@@ -14,26 +15,26 @@ interface CustomAudioElement extends HTMLAudioElement {
 type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement | null> };
 
 export default function useCustomAudioRef({
-  setIsPlaying,
+  messageId,
 }: {
-  setIsPlaying: (isPlaying: boolean) => void;
+  messageId: string | null;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
+  const audioManager = useAudioStateManager();
   useEffect(() => {
     let lastTimeUpdate: number | null = null;
     let sameTimeUpdateCount = 0;
 
     const handleEnded = () => {
-      setIsPlaying(false);
+      audioManager.playbackEnded(messageId);
       console.log('global audio ended');
       if (audioRef.current) {
         audioRef.current.customEnded = true;
-        URL.revokeObjectURL(audioRef.current.src);
       }
     };
 
     const handleStart = () => {
-      setIsPlaying(true);
+      audioManager.playbackStarted(messageId);
       console.log('global audio started');
       if (audioRef.current) {
         audioRef.current.customStarted = true;
@@ -92,7 +93,7 @@ export default function useCustomAudioRef({
         URL.revokeObjectURL(audioElement.src);
       }
     };
-  }, [setIsPlaying]);
+  }, [audioManager, messageId]);
 
   return { audioRef };
 }

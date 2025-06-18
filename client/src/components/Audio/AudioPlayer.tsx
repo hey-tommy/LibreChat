@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
+import { useRecoilState, useRecoilValue } from 'recoil';
 import { useAuthContext } from '~/hooks';
-import { MediaSourceAppender, useCustomAudioRef, usePauseGlobalAudio } from '~/hooks/Audio';
+import { MediaSourceAppender, useCustomAudioRef, usePauseGlobalAudio, useAudioStateManager } from '~/hooks/Audio';
 import store from '~/store';
 import audioStore, { TTSAudioRequest } from '~/store/audio';
 import { globalAudioId } from '~/common';
@@ -25,12 +25,10 @@ export default function AudioPlayer() {
 
   const index = request?.index ?? 0;
   const messageId = request?.messageId ?? null;
-  const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
   const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
-  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(messageId));
-  const { audioRef } = useCustomAudioRef({ setIsPlaying });
+  const audioManager = useAudioStateManager();
+  const { audioRef } = useCustomAudioRef({ messageId });
   const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
-  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
 
   useEffect(() => {
     if (!request) {
@@ -38,8 +36,7 @@ export default function AudioPlayer() {
     }
 
     async function fetchAudio(req: TTSAudioRequest) {
-      setIsFetching(true);
-      setAudioRunId(req.runId ?? null);
+      audioManager.requestStarted(messageId, req.runId);
       try {
         if (audioRef.current) {
           audioRef.current.pause();
@@ -55,8 +52,7 @@ export default function AudioPlayer() {
           logger.log('Audio found in cache');
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
-          setGlobalAudioURL(blobUrl);
-          setIsFetching(false);
+          audioManager.setUrl(messageId, blobUrl);
           setRequest(null);
           return;
         }
@@ -78,7 +74,7 @@ export default function AudioPlayer() {
         let mediaSource: MediaSourceAppender | undefined;
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
-          setGlobalAudioURL(mediaSource.mediaSourceUrl);
+          audioManager.setUrl(messageId, mediaSource.mediaSourceUrl);
         }
 
         let done = false;
@@ -105,7 +101,7 @@ export default function AudioPlayer() {
           await cache.put(cacheKey, cachedResponse);
           if (!browserSupportsType) {
             const blobUrl = URL.createObjectURL(audioBlob);
-            setGlobalAudioURL(blobUrl);
+            audioManager.setUrl(messageId, blobUrl);
           }
         }
 
@@ -116,9 +112,8 @@ export default function AudioPlayer() {
           return;
         }
         logger.error('Error fetching audio:', error);
-        setGlobalAudioURL(null);
+        audioManager.playbackError(messageId);
       } finally {
-        setIsFetching(false);
         setRequest(null);
       }
     }
