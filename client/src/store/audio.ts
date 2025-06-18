@@ -12,4 +12,9 @@ export const ttsRequestAtom = atom<TTSAudioRequest | null>({
   default: null,
 });
 
-export default { ttsRequestAtom };
+export const activeAudioMessageIdAtom = atom<string | null>({
+  key: 'activeAudioMessageId',
+  default: null,
+});
+
+export default { ttsRequestAtom, activeAudioMessageIdAtom };

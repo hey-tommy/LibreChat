@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import AudioStateManager from './useAudioStateManager';
 
 interface CustomAudioElement extends HTMLAudioElement {
   customStarted?: boolean;
@@ -14,13 +15,13 @@ interface CustomAudioElement extends HTMLAudioElement {
 type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement | null> };
 
 export default function useCustomAudioRef({
-  setIsPlaying,
-  setIsFetching,
+  stateManager,
   clearRequest,
+  messageId,
 }: {
-  setIsPlaying: (isPlaying: boolean) => void;
-  setIsFetching?: (isFetching: boolean) => void;
+  stateManager: AudioStateManager;
   clearRequest?: () => void;
+  messageId?: string | null;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
   useEffect(() => {
@@ -35,25 +36,18 @@ export default function useCustomAudioRef({
     let sameTimeUpdateCount = 0;
 
     const handleEnded = () => {
-      setIsPlaying(false);
-      // Clear request when playback ends to reset button state
+      stateManager.endPlayback(messageId ?? stateManager.activeMessageId ?? '');
       if (clearRequest) {
         clearRequest();
       }
       console.log('global audio ended');
       if (audioRef.current) {
         audioRef.current.customEnded = true;
-        // Remove URL revocation from here - it's already in the cleanup function
-        // and we don't want to revoke too early
       }
     };
 
     const handleStart = () => {
-      // Clear fetching spinner and show stop button when audio actually starts playing
-      setIsPlaying(true);
-      if (setIsFetching) {
-        setIsFetching(false);
-      }
+      stateManager.startPlaying(messageId ?? stateManager.activeMessageId ?? '');
       console.log('global audio started');
       if (audioRef.current) {
         audioRef.current.customStarted = true;
@@ -61,6 +55,7 @@ export default function useCustomAudioRef({
     };
 
     const handlePause = () => {
+      stateManager.pausePlayback(messageId ?? stateManager.activeMessageId ?? '');
       console.log('global audio paused');
       if (audioRef.current) {
         audioRef.current.customPaused = true;
