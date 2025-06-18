@@ -27,10 +27,10 @@ const useTextToSpeech = (props?: TUseTextToSpeech) => {
   const { audioRef } = useAudioRef({ setIsPlaying: setIsSpeaking });
 
   const { textToSpeechEndpoint } = useGetAudioSettings();
-  const { pauseGlobalAudio } = usePauseGlobalAudio(index);
+  const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
   const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
   const [voice, setVoice] = useRecoilState(store.voice);
-  const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(index));
+  const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(messageId ?? null));
 
   const isSpeaking = isSpeakingState || (isLast && globalIsPlaying);
 
@@ -46,7 +46,7 @@ const useTextToSpeech = (props?: TUseTextToSpeech) => {
   const cancelSpeechExternal = () => {
     pauseGlobalAudio();
   };
-  const isLoadingExternal = useRecoilValue(store.globalAudioFetchingFamily(index));
+  const isLoadingExternal = useRecoilValue(store.globalAudioFetchingFamily(messageId ?? null));
   const voicesExternal: Option[] = [];
 
   const generateSpeech = useMemo(() => {

@@ -3,13 +3,13 @@ import { useRecoilState, useSetRecoilState } from 'recoil';
 import { globalAudioId } from '~/common';
 import store from '~/store';
 
-function usePauseGlobalAudio(index = 0) {
+function usePauseGlobalAudio(messageId: string | null = null) {
   /* Global Audio Variables */
-  const setAudioRunId = useSetRecoilState(store.audioRunFamily(index));
-  const setActiveRunId = useSetRecoilState(store.activeRunFamily(index));
-  const setGlobalIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(index));
-  const setIsGlobalAudioFetching = useSetRecoilState(store.globalAudioFetchingFamily(index));
-  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(index));
+  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
+  const setActiveRunId = useSetRecoilState(store.activeRunFamily(messageId));
+  const setGlobalIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
+  const setIsGlobalAudioFetching = useSetRecoilState(store.globalAudioFetchingFamily(messageId));
+  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
 
   const pauseGlobalAudio = useCallback(() => {
     if (globalAudioURL != null && globalAudioURL !== '') {
