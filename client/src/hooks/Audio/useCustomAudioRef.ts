@@ -14,9 +14,13 @@ interface CustomAudioElement extends HTMLAudioElement {
 type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement | null> };
 
 export default function useCustomAudioRef({
-  setIsPlaying,
+  onPlay,
+  onPause,
+  onEnded,
 }: {
-  setIsPlaying: (isPlaying: boolean) => void;
+  onPlay: () => void;
+  onPause: () => void;
+  onEnded: () => void;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
   useEffect(() => {
@@ -24,7 +28,7 @@ export default function useCustomAudioRef({
     let sameTimeUpdateCount = 0;
 
     const handleEnded = () => {
-      setIsPlaying(false);
+      onEnded();
       console.log('global audio ended');
       if (audioRef.current) {
         audioRef.current.customEnded = true;
@@ -33,7 +37,7 @@ export default function useCustomAudioRef({
     };
 
     const handleStart = () => {
-      setIsPlaying(true);
+      onPlay();
       console.log('global audio started');
       if (audioRef.current) {
         audioRef.current.customStarted = true;
@@ -42,6 +46,7 @@ export default function useCustomAudioRef({
 
     const handlePause = () => {
       console.log('global audio paused');
+      onPause();
       if (audioRef.current) {
         audioRef.current.customPaused = true;
       }
@@ -92,7 +97,7 @@ export default function useCustomAudioRef({
         URL.revokeObjectURL(audioElement.src);
       }
     };
-  }, [setIsPlaying]);
+  }, [onPlay, onPause, onEnded]);
 
   return { audioRef };
 }
