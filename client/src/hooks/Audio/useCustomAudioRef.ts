@@ -14,13 +14,13 @@ interface CustomAudioElement extends HTMLAudioElement {
 type TCustomAudioResult = { audioRef: React.MutableRefObject<CustomAudioElement | null> };
 
 export default function useCustomAudioRef({
-  setIsPlaying,
-  setIsFetching,
-  clearRequest,
+  onPlay,
+  onPause,
+  onEnded,
 }: {
-  setIsPlaying: (isPlaying: boolean) => void;
-  setIsFetching?: (isFetching: boolean) => void;
-  clearRequest?: () => void;
+  onPlay?: () => void;
+  onPause?: () => void;
+  onEnded?: () => void;
 }): TCustomAudioResult {
   const audioRef = useRef<CustomAudioElement | null>(null);
   useEffect(() => {
@@ -35,10 +35,8 @@ export default function useCustomAudioRef({
     let sameTimeUpdateCount = 0;
 
     const handleEnded = () => {
-      setIsPlaying(false);
-      // Clear request when playback ends to reset button state
-      if (clearRequest) {
-        clearRequest();
+      if (onEnded) {
+        onEnded();
       }
       console.log('global audio ended');
       if (audioRef.current) {
@@ -49,10 +47,8 @@ export default function useCustomAudioRef({
     };
 
     const handleStart = () => {
-      // Clear fetching spinner and show stop button when audio actually starts playing
-      setIsPlaying(true);
-      if (setIsFetching) {
-        setIsFetching(false);
+      if (onPlay) {
+        onPlay();
       }
       console.log('global audio started');
       if (audioRef.current) {
@@ -62,6 +58,9 @@ export default function useCustomAudioRef({
 
     const handlePause = () => {
       console.log('global audio paused');
+      if (onPause) {
+        onPause();
+      }
       if (audioRef.current) {
         audioRef.current.customPaused = true;
       }
