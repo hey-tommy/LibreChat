@@ -12,8 +12,8 @@ import lang from './language';
 import settings from './settings';
 import misc from './misc';
 import isTemporary from './temporary';
-import audio from './audio';
 export * from './agents';
+export * from './audio';
 
 export default {
   ...artifacts,
@@ -30,5 +30,4 @@ export default {
   ...settings,
   ...misc,
   ...isTemporary,
-  ...audio,
 };

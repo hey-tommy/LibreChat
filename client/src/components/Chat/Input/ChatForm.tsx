@@ -27,14 +27,13 @@ import TextareaHeader from './TextareaHeader';
 import PromptsCommand from './PromptsCommand';
 import AudioRecorder from './AudioRecorder';
 import CollapseChat from './CollapseChat';
-import audioStore from '~/store/audio';
+import { ttsRequestAtom } from '~/store/audio';
 import StopButton from './StopButton';
 import SendButton from './SendButton';
 import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
 import Mention from './Mention';
 import store from '~/store';
-import { useAuthContext } from '~/hooks';
 
 const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   const submitButtonRef = useRef<HTMLButtonElement>(null);
@@ -85,12 +84,9 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   const showStopAdded = useRecoilValue(store.showStopButtonByIndex(addedIndex));
 
   const activeRunId = useRecoilValue(store.activeRunFamily(index));
-  const [audioRunId, setAudioRunId] = useRecoilState(store.audioRunFamily(index));
   const latestMessage = useRecoilValue(store.latestMessageFamily(index));
-  const isFetching = useRecoilValue(store.globalAudioFetchingFamily(index));
   const voice = useRecoilValue(store.voice);
-  const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
-  const { token } = useAuthContext();
+  const setTTSRequest = useSetRecoilState(ttsRequestAtom);
 
   const endpoint = useMemo(
     () => conversation?.endpointType ?? conversation?.endpoint,
@@ -203,7 +199,6 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
   useEffect(() => {
     const latestText = getLatestText(latestMessage);
     const shouldFetch = !!(
-      token &&
       TextToSpeech &&
       automaticPlayback &&
       !isSubmitting &&
@@ -212,28 +207,21 @@ const ChatForm = memo(({ index = 0 }: { index?: number }) => {
       latestText &&
       latestMessage.messageId &&
       !latestMessage.messageId.includes('_') &&
-      !isFetching &&
-      activeRunId != null &&
-      activeRunId !== audioRunId
+      activeRunId != null
     );
 
     if (!shouldFetch) {
       return;
     }
 
-    setAudioRunId(activeRunId);
     setTTSRequest({ messageId: latestMessage.messageId, runId: activeRunId, index, voice });
   }, [
     TextToSpeech,
     automaticPlayback,
     latestMessage,
     isSubmitting,
-    isFetching,
     activeRunId,
-    audioRunId,
-    token,
     index,
-    setAudioRunId,
     setTTSRequest,
     voice,
   ]);

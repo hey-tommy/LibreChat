@@ -255,6 +255,21 @@ const messagesSiblingIdxFamily = atomFamily<number, string | null | undefined>({
   default: 0,
 });
 
+export const globalAudioBufferingFamily = atomFamily<boolean, string | null>({
+  key: 'globalAudioBuffering',
+  default: false,
+});
+
+export const audioErrorFamily = atomFamily<Error | null, string | null>({
+  key: 'audioError',
+  default: null,
+});
+
+export const activeAudioMessageIdAtom = atom<string | null>({
+  key: 'activeAudioMessageId',
+  default: null,
+});
+
 function useCreateConversationAtom(key: string | number) {
   const hasSetConversation = useSetConvoContext();
   const [keys, setKeys] = useRecoilState(conversationKeysAtom);
@@ -409,6 +424,9 @@ export default {
   audioRunFamily,
   globalAudioPlayingFamily,
   globalAudioFetchingFamily,
+  globalAudioBufferingFamily,
+  audioErrorFamily,
+  activeAudioMessageIdAtom,
   showPlusPopoverFamily,
   activePromptByIndex,
   useClearSubmissionState,

@@ -3,11 +3,13 @@ import { useEffect, useMemo } from 'react';
 import { useRecoilValue, useSetRecoilState } from 'recoil';
 import type { TMessageAudio } from '~/common';
 import { useLocalize, useTTSBrowser } from '~/hooks';
-import { usePauseGlobalAudio } from '~/hooks/Audio';
-import audioStore from '~/store/audio';
-import { VolumeIcon, VolumeMuteIcon, Spinner } from '~/components';
+import families from '~/store/families';
+import { ttsRequestAtom, stopAudioRequestAtom } from '~/store/audio';
+import { VolumeIcon, VolumeMuteIcon, Spinner } from '~/components/svg';
 import { logger } from '~/utils';
 import store from '~/store';
+
+const { globalAudioPlayingFamily, globalAudioFetchingFamily, globalAudioBufferingFamily } = families;
 
 export function BrowserTTS({ isLast, index, messageId, content, className }: TMessageAudio) {
   const localize = useLocalize();
@@ -86,36 +88,35 @@ export function BrowserTTS({ isLast, index, messageId, content, className }: TMe
   );
 }
 
-export function ExternalTTS({ isLast, index, messageId, className }: TMessageAudio) {
+export function ExternalTTS({ index, messageId, className }: TMessageAudio) {
   const localize = useLocalize();
-  const isLoading = useRecoilValue(store.globalAudioFetchingFamily(messageId ?? null));
-  const isSpeaking = useRecoilValue(store.globalAudioPlayingFamily(messageId ?? null));
-  const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
-  const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
+  const isFetching = useRecoilValue(globalAudioFetchingFamily(messageId ?? null));
+  const isSpeaking = useRecoilValue(globalAudioPlayingFamily(messageId ?? null));
+  const isBuffering = useRecoilValue(globalAudioBufferingFamily(messageId ?? null));
+  const setTTSRequest = useSetRecoilState(ttsRequestAtom);
+  const setStopRequest = useSetRecoilState(stopAudioRequestAtom);
 
-  // Debug logging for state updates
-  console.log(`[ExternalTTS ${messageId}] State: isLoading=${isLoading}, isSpeaking=${isSpeaking}`);
+  const isLoading = useMemo(() => isFetching || isBuffering, [isFetching, isBuffering]);
 
   const renderIcon = (size: string) => {
-    if (isLoading === true) {
+    if (isLoading) {
       return <Spinner size={size} />;
     }
-    if (isSpeaking === true) {
+    if (isSpeaking) {
       return <VolumeMuteIcon size={size} />;
     }
     return <VolumeIcon size={size} />;
   };
 
   const handleClick = () => {
-    if (isSpeaking) {
-      pauseGlobalAudio();
+    if (isSpeaking || isLoading) {
+      setStopRequest(true);
     } else if (messageId) {
       const requestObj = { 
         messageId, 
         index, 
         runId: `${messageId}-${Date.now()}` 
       };
-      console.log('[ExternalTTS] Setting TTS request:', requestObj);
       setTTSRequest(requestObj);
     }
   };
@@ -125,7 +126,7 @@ export function ExternalTTS({ isLast, index, messageId, className }: TMessageAud
       className={className}
       onClickCapture={handleClick}
       type="button"
-      title={isSpeaking === true ? localize('com_ui_stop') : localize('com_ui_read_aloud')}
+      title={isSpeaking || isLoading ? localize('com_ui_stop') : localize('com_ui_read_aloud')}
     >
       {renderIcon('19')}
     </button>

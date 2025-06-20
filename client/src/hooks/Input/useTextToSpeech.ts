@@ -9,7 +9,7 @@ import useAudioRef from '~/hooks/Audio/useAudioRef';
 import { usePauseGlobalAudio } from '../Audio';
 import { logger } from '~/utils';
 import store from '~/store';
-import audioStore from '~/store/audio';
+import { ttsRequestAtom } from '~/store/audio';
 
 type TUseTextToSpeech = {
   messageId?: string;
@@ -28,7 +28,7 @@ const useTextToSpeech = (props?: TUseTextToSpeech) => {
 
   const { textToSpeechEndpoint } = useGetAudioSettings();
   const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
-  const setTTSRequest = useSetRecoilState(audioStore.ttsRequestAtom);
+  const setTTSRequest = useSetRecoilState(ttsRequestAtom);
   const [voice, setVoice] = useRecoilState(store.voice);
   const globalIsPlaying = useRecoilValue(store.globalAudioPlayingFamily(messageId ?? null));
 

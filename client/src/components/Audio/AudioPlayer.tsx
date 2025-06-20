@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
-import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
+import { useEffect, useRef } from 'react';
+import { useRecoilState, useRecoilValue } from 'recoil';
 import { useAuthContext } from '~/hooks';
-import { MediaSourceAppender, useCustomAudioRef, usePauseGlobalAudio } from '~/hooks/Audio';
+import { MediaSourceAppender, useCustomAudioRef } from '~/hooks/Audio';
 import store from '~/store';
-import audioStore, { TTSAudioRequest } from '~/store/audio';
+import { ttsRequestAtom, useAudioStateManager, stopAudioRequestAtom } from '~/store/audio';
 import { globalAudioId } from '~/common';
 import { logger } from '~/utils';
 
@@ -18,86 +18,68 @@ function timeoutPromise(ms: number, message?: string) {
 
 export default function AudioPlayer() {
   const { token } = useAuthContext();
-  const [request, setRequest] = useRecoilState(audioStore.ttsRequestAtom);
+  const [request, setRequest] = useRecoilState(ttsRequestAtom);
   const cacheTTS = useRecoilValue(store.cacheTTS);
   const playbackRate = useRecoilValue(store.playbackRate);
   const voice = useRecoilValue(store.voice);
 
-  const index = request?.index ?? 0;
-  const messageId = request?.messageId ?? null;
-  const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
-  const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
-  const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(messageId));
-  const { audioRef } = useCustomAudioRef({ 
-    setIsPlaying,
-    setIsFetching,
-    clearRequest: () => setRequest(null)
-  });
-  const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
-  const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
+  const stateManager = useAudioStateManager();
+  const { audioRef } = useCustomAudioRef({ stateManager });
+
+  const [stopRequest, setStopRequest] = useRecoilState(stopAudioRequestAtom);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    logger.log('[AudioPlayer] useEffect triggered, request:', request);
-    
     if (!request || !request.messageId) {
-      logger.log('[AudioPlayer] No valid request, skipping');
       return;
     }
 
-    async function fetchAudio(req: TTSAudioRequest) {
-      logger.log('[AudioPlayer] Starting fetchAudio for:', req.messageId);
-      setIsFetching(true); // Show spinner
-      setAudioRunId(req.runId ?? null);
+    // Destructure after the guard to create constants with guaranteed non-null types.
+    // This is the key fix to resolve the persistent TypeScript error.
+    const { messageId, runId, voice: reqVoice } = request;
+
+    (async () => {
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
+
+      // Now, use the guaranteed non-null `messageId` and `runId` constants.
+      stateManager.cleanupLastMessage(messageId);
+      stateManager.requestStarted(messageId, runId ?? '');
+
       try {
         if (audioRef.current) {
           audioRef.current.pause();
-          URL.revokeObjectURL(audioRef.current.src);
-          setGlobalAudioURL(null);
+          if (audioRef.current.src && audioRef.current.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioRef.current.src);
+          }
         }
 
-        let cacheKey = req.messageId;
+        const cacheKey = messageId;
         const cache = await caches.open('tts-responses');
         const cachedResponse = await cache.match(cacheKey);
 
         if (cachedResponse) {
-          logger.log('Audio found in cache for:', req.messageId);
+          logger.log('Audio found in cache for:', messageId);
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
-          
-          // Set the flag to start playback
-          setIsPlaying(true);
-          setGlobalAudioURL(blobUrl);
-          
-          // Force clear fetching now to ensure spinner goes away
-          // The play event may not fire reliably, so we clear the spinner here
-          setIsFetching(false);
-          
-          // Explicitly try to play the audio
-          setTimeout(() => {
-            if (audioRef.current) {
-              logger.log('Attempting to play cached audio for:', req.messageId);
-              audioRef.current.play()
-                .catch(err => {
-                  logger.error('Error playing cached audio:', err);
-                  // On error, clear all flags to reset UI state
-                  setIsPlaying(false);
-                  setIsFetching(false);
-                });
-            } else {
-              // If audioRef is somehow not available, reset state
-              setIsPlaying(false);
-              setIsFetching(false);
-            }
-          }, 50);
-          
+
+          if (audioRef.current) {
+            audioRef.current.src = blobUrl;
+            await audioRef.current.play();
+          }
           return;
         }
 
-        logger.log('Fetching audio for:', req.messageId, navigator.userAgent);
+        logger.log('Fetching audio for:', messageId, navigator.userAgent);
         const response = await fetch('/api/files/speech/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messageId: req.messageId, runId: req.runId, voice: req.voice ?? voice }),
+          body: JSON.stringify({
+            messageId: messageId,
+            runId: runId,
+            voice: reqVoice ?? voice,
+          }),
+          signal,
         });
 
         if (!response.ok || !response.body) {
@@ -106,16 +88,18 @@ export default function AudioPlayer() {
 
         const reader = response.body.getReader();
         const type = 'audio/mpeg';
-        const browserSupportsType = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
+        const browserSupportsType =
+          typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(type);
         let mediaSource: MediaSourceAppender | undefined;
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
-          setGlobalAudioURL(mediaSource.mediaSourceUrl);
+          if (audioRef.current) {
+            audioRef.current.src = mediaSource.mediaSourceUrl;
+          }
           logger.log('Created MediaSource for streaming');
         }
 
         let done = false;
-        let started = false;
         const chunks: ArrayBuffer[] = [];
         while (!done) {
           const readPromise = reader.read();
@@ -125,14 +109,6 @@ export default function AudioPlayer() {
           ])) as ReadableStreamReadResult<ArrayBuffer>;
 
           if (value) {
-            if (!started) {
-              started = true;
-              // Force set isPlaying and clear isFetching to ensure UI transition
-              // The play event may be unreliable in some browsers
-              setIsPlaying(true);
-              setIsFetching(false);
-              logger.log('First audio chunk received, streaming started - setting UI state');
-            }
             if (cacheTTS) {
               chunks.push(value);
             }
@@ -143,55 +119,82 @@ export default function AudioPlayer() {
           done = readerDone;
         }
 
+        if (mediaSource) {
+          await mediaSource.awaitProcessing();
+          mediaSource.close();
+        }
+
+        // First, ask the state manager for the LATEST "isPlaying" status.
+        const isAlreadyPlaying = await stateManager.getIsPlaying(messageId);
+
+        if (!isAlreadyPlaying) {
+          // If the state manager confirms playback hasn't started,
+          // we know our race condition occurred. We take charge and
+          // issue the explicit play command.
+          if (audioRef.current) {
+            logger.log('Fetch completed before playback event; issuing explicit play command.');
+            await audioRef.current.play();
+          }
+        }
+
         if (chunks.length) {
           const audioBlob = new Blob(chunks, { type });
           const cachedResponse = new Response(audioBlob);
           await cache.put(cacheKey, cachedResponse);
-          logger.log('Cached audio for:', req.messageId);
-          if (!browserSupportsType) {
+          logger.log('Cached audio for:', messageId);
+          if (!browserSupportsType && audioRef.current) {
             const blobUrl = URL.createObjectURL(audioBlob);
-            setGlobalAudioURL(blobUrl);
+            audioRef.current.src = blobUrl;
           }
         }
 
-        logger.log('Audio stream reading completed for:', req.messageId);
+        logger.log('Audio stream reading completed for:', messageId);
       } catch (error) {
-        if (error?.['message'] === promiseTimeoutMessage) {
-          logger.log(promiseTimeoutMessage);
-        } else {
-          logger.error('Error fetching audio for:', req.messageId, error);
+        if (signal.aborted) {
+          logger.log('Audio fetch aborted for:', messageId);
+          stateManager.playbackFinished();
+          return;
         }
-        setGlobalAudioURL(null);
+        logger.error('Error fetching/playing audio for:', messageId, error);
+        stateManager.playbackFailed(error as Error);
       } finally {
-        // Always clear these states to prevent stuck UI
-        setIsFetching(false);
-        //if (error) {
-        //  setIsPlaying(false); // Also reset playing state on error to get back to Read Aloud
-        //}
-        //setRequest(null);
+        if (request && runId === request.runId) {
+          setRequest(null);
+        }
       }
-    }
+    })();
 
-    fetchAudio(request);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request?.runId, request?.messageId]);
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [request?.messageId, request?.runId]);
 
   useEffect(() => {
+    // This effect handles the global stop command
+    if (stopRequest) {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setStopRequest(false); // Reset the stop request
+    }
+  }, [stopRequest, setStopRequest]);
+
+  useEffect(() => {
+    const currentRate = playbackRate ?? 1;
     if (
-      playbackRate != null &&
-      globalAudioURL != null &&
-      playbackRate > 0 &&
+      currentRate > 0 &&
       audioRef.current &&
-      audioRef.current.playbackRate !== playbackRate
+      audioRef.current.playbackRate !== currentRate &&
+      audioRef.current.src
     ) {
-      audioRef.current.playbackRate = playbackRate;
+      audioRef.current.playbackRate = currentRate;
     }
-  }, [audioRef, globalAudioURL, playbackRate]);
-
-  useEffect(() => {
-    pauseGlobalAudio();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [playbackRate, audioRef.current?.src]);
 
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -206,7 +209,6 @@ export default function AudioPlayer() {
         height: '0px',
         width: '0px',
       }}
-      src={globalAudioURL ?? undefined}
       id={globalAudioId}
       autoPlay
     />
