@@ -8,7 +8,7 @@ import { globalAudioId } from '~/common';
 import { logger } from '~/utils';
 
 const promiseTimeoutMessage = 'Reader promise timed out';
-const maxPromiseTime = 15000;
+const maxPromiseTime = 120000;  // 15 secs was way too agressive for local TTS
 
 function timeoutPromise(ms: number, message?: string) {
   return new Promise((_, reject) =>
@@ -28,17 +28,25 @@ export default function AudioPlayer() {
   const setIsPlaying = useSetRecoilState(store.globalAudioPlayingFamily(messageId));
   const [globalAudioURL, setGlobalAudioURL] = useRecoilState(store.globalAudioURLFamily(messageId));
   const [isFetching, setIsFetching] = useRecoilState(store.globalAudioFetchingFamily(messageId));
-  const { audioRef } = useCustomAudioRef({ setIsPlaying });
+  const { audioRef } = useCustomAudioRef({ 
+    setIsPlaying,
+    setIsFetching,
+    clearRequest: () => setRequest(null)
+  });
   const { pauseGlobalAudio } = usePauseGlobalAudio(messageId);
   const setAudioRunId = useSetRecoilState(store.audioRunFamily(messageId));
 
   useEffect(() => {
-    if (!request) {
+    logger.log('[AudioPlayer] useEffect triggered, request:', request);
+    
+    if (!request || !request.messageId) {
+      logger.log('[AudioPlayer] No valid request, skipping');
       return;
     }
 
     async function fetchAudio(req: TTSAudioRequest) {
-      setIsFetching(true);
+      logger.log('[AudioPlayer] Starting fetchAudio for:', req.messageId);
+      setIsFetching(true); // Show spinner
       setAudioRunId(req.runId ?? null);
       try {
         if (audioRef.current) {
@@ -52,16 +60,40 @@ export default function AudioPlayer() {
         const cachedResponse = await cache.match(cacheKey);
 
         if (cachedResponse) {
-          logger.log('Audio found in cache');
+          logger.log('Audio found in cache for:', req.messageId);
           const audioBlob = await cachedResponse.blob();
           const blobUrl = URL.createObjectURL(audioBlob);
+          
+          // Set the flag to start playback
+          setIsPlaying(true);
           setGlobalAudioURL(blobUrl);
+          
+          // Force clear fetching now to ensure spinner goes away
+          // The play event may not fire reliably, so we clear the spinner here
           setIsFetching(false);
-          setRequest(null);
+          
+          // Explicitly try to play the audio
+          setTimeout(() => {
+            if (audioRef.current) {
+              logger.log('Attempting to play cached audio for:', req.messageId);
+              audioRef.current.play()
+                .catch(err => {
+                  logger.error('Error playing cached audio:', err);
+                  // On error, clear all flags to reset UI state
+                  setIsPlaying(false);
+                  setIsFetching(false);
+                });
+            } else {
+              // If audioRef is somehow not available, reset state
+              setIsPlaying(false);
+              setIsFetching(false);
+            }
+          }, 50);
+          
           return;
         }
 
-        logger.log('Fetching audio...', navigator.userAgent);
+        logger.log('Fetching audio for:', req.messageId, navigator.userAgent);
         const response = await fetch('/api/files/speech/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -79,9 +111,11 @@ export default function AudioPlayer() {
         if (browserSupportsType) {
           mediaSource = new MediaSourceAppender(type);
           setGlobalAudioURL(mediaSource.mediaSourceUrl);
+          logger.log('Created MediaSource for streaming');
         }
 
         let done = false;
+        let started = false;
         const chunks: ArrayBuffer[] = [];
         while (!done) {
           const readPromise = reader.read();
@@ -90,11 +124,21 @@ export default function AudioPlayer() {
             timeoutPromise(maxPromiseTime, promiseTimeoutMessage),
           ])) as ReadableStreamReadResult<ArrayBuffer>;
 
-          if (cacheTTS && value) {
-            chunks.push(value);
-          }
-          if (value && mediaSource) {
-            mediaSource.addData(value);
+          if (value) {
+            if (!started) {
+              started = true;
+              // Force set isPlaying and clear isFetching to ensure UI transition
+              // The play event may be unreliable in some browsers
+              setIsPlaying(true);
+              setIsFetching(false);
+              logger.log('First audio chunk received, streaming started - setting UI state');
+            }
+            if (cacheTTS) {
+              chunks.push(value);
+            }
+            if (mediaSource) {
+              mediaSource.addData(value);
+            }
           }
           done = readerDone;
         }
@@ -103,23 +147,28 @@ export default function AudioPlayer() {
           const audioBlob = new Blob(chunks, { type });
           const cachedResponse = new Response(audioBlob);
           await cache.put(cacheKey, cachedResponse);
+          logger.log('Cached audio for:', req.messageId);
           if (!browserSupportsType) {
             const blobUrl = URL.createObjectURL(audioBlob);
             setGlobalAudioURL(blobUrl);
           }
         }
 
-        logger.log('Audio stream reading ended');
+        logger.log('Audio stream reading completed for:', req.messageId);
       } catch (error) {
-        if (error?.['message'] !== promiseTimeoutMessage) {
+        if (error?.['message'] === promiseTimeoutMessage) {
           logger.log(promiseTimeoutMessage);
-          return;
+        } else {
+          logger.error('Error fetching audio for:', req.messageId, error);
         }
-        logger.error('Error fetching audio:', error);
         setGlobalAudioURL(null);
       } finally {
+        // Always clear these states to prevent stuck UI
         setIsFetching(false);
-        setRequest(null);
+        //if (error) {
+        //  setIsPlaying(false); // Also reset playing state on error to get back to Read Aloud
+        //}
+        //setRequest(null);
       }
     }
 
